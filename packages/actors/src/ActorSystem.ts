@@ -1,14 +1,15 @@
-import * as REF from "@effect-ts/core/Effect/Ref";
-import * as HS from "@effect-ts/core/Collections/Immutable/HashSet";
-import * as T from "@effect-ts/core/Effect";
-import * as O from "@effect-ts/core/Option";
-import * as MAP from "@effect-ts/core/Collections/Immutable/Map";
-import * as A from "./Actor";
-import * as AR from "./ActorRef";
-import * as SUP from "./Supervisor";
-import { HasClock } from "@effect-ts/system/Clock";
-import { Throwable } from "./common";
-import { pipe } from "@effect-ts/system/Function";
+import * as HS from "@effect-ts/core/Collections/Immutable/HashSet"
+import * as MAP from "@effect-ts/core/Collections/Immutable/Map"
+import * as T from "@effect-ts/core/Effect"
+import * as REF from "@effect-ts/core/Effect/Ref"
+import * as O from "@effect-ts/core/Option"
+import type { HasClock } from "@effect-ts/system/Clock"
+import { pipe } from "@effect-ts/system/Function"
+
+import type * as A from "./Actor"
+import * as AR from "./ActorRef"
+import type { Throwable } from "./common"
+import type * as SUP from "./Supervisor"
 
 /**
  * Context for actor used inside Stateful which provides self actor reference and actor creation/selection API
@@ -24,7 +25,7 @@ export class Context {
    *
    * @return actor reference in a task
    */
-  self = this.actorSystem.select(this.path);
+  self = this.actorSystem.select(this.path)
   /**
    * Creates actor and registers it to dependent actor system
    *
@@ -44,13 +45,11 @@ export class Context {
   ): T.Effect<R & HasClock, Throwable, AR.ActorRef<F1>> {
     return pipe(
       T.do,
-      T.bind("actorRef", () =>
-        this.actorSystem.make(actorName, sup, init, stateful)
-      ),
+      T.bind("actorRef", () => this.actorSystem.make(actorName, sup, init, stateful)),
       T.bind("children", () => REF.get(this.childrenRef)),
       T.tap((_) => REF.set_(this.childrenRef, HS.add_(_.children, _.actorRef))),
       T.map((_) => _.actorRef)
-    );
+    )
   }
 
   /**
@@ -64,11 +63,11 @@ export class Context {
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
   select<F1>(path: string) {
-    return this.actorSystem.select<F1>(path);
+    return this.actorSystem.select<F1>(path)
   }
 }
 
-type RemoteConfig = {};
+type RemoteConfig = {}
 export class ActorSystem {
   constructor(
     readonly actorSystemName: string,
@@ -137,25 +136,20 @@ export class ActorSystem {
         REF.set_(this.refActorMap, MAP.insert_(_.map, _.finalName, _.actor))
       ),
       T.map((_) => new AR.ActorRefLocal(_.path, _.actor))
-    );
+    )
   }
 
-  dropFromActorMap(
-    path: string,
-    childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>
-  ) {
+  dropFromActorMap(path: string, childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>) {
     return pipe(
       T.do,
       T.bind("solvedPath", () => resolvePath(path)),
       T.let("actorName", (_) => _.solvedPath[3]),
-      T.tap((_) =>
-        REF.update_(this.refActorMap, (m) => MAP.remove_(m, _.actorName))
-      ),
+      T.tap((_) => REF.update_(this.refActorMap, (m) => MAP.remove_(m, _.actorName))),
       T.bind("children", (_) => REF.get(childrenRef)),
       T.tap((_) => T.forEach_(_.children, (a) => a.stop)),
       T.tap((_) => REF.set_(childrenRef, HS.make())),
       T.zipRight(T.unit)
-    );
+    )
   }
 
   /**
@@ -189,19 +183,19 @@ export class ActorSystem {
                 (a: A.Actor<F1>) => T.succeed(new AR.ActorRefLocal(path, a))
               )
             )
-          );
+          )
         } else {
-          return T.fail("No remote support ATM");
+          return T.fail("No remote support ATM")
         }
       })
-    );
+    )
   }
 }
 
 function buildFinalName(parentActorName: string, actorName: string) {
   return actorName.length === 0
     ? T.fail("Actor name should not be empty")
-    : T.succeed(parentActorName + "/" + actorName);
+    : T.succeed(parentActorName + "/" + actorName)
 }
 
 function buildPath(
@@ -212,27 +206,40 @@ function buildPath(
   const host = pipe(
     remoteConfig,
     //O.map(c => c.addr.value + ":" + c.port.value),
-    O.map((_) => ""),
+    O.map((_) => "0.0.0.0:0000"),
     O.getOrElse(() => "0.0.0.0:0000")
-  );
-  return `zio://${actorSystemName}@${host}${actorPath}`;
+  )
+  return `zio://${actorSystemName}@${host}${actorPath}`
 }
 
-const regexFullPath =
-  /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|\/]+)$/gi;
+const regexFullPath = /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|\/]+)$/i
 function resolvePath(
   path: string
 ): T.Effect<unknown, Throwable, readonly [string, number, number, string]> {
-  const match = path.match(regexFullPath);
+  const match = path.match(regexFullPath)
   if (match) {
     return T.succeed([
       match[1],
       parseInt(match[2], 10),
       parseInt(match[3], 10),
-      match[4],
-    ]);
+      "/" + match[4]
+    ])
   }
   return T.fail(
     "Invalid path provided. The pattern is zio://YOUR_ACTOR_SYSTEM_NAME@ADDRES:PORT/RELATIVE_ACTOR_PATH"
-  );
+  )
+}
+
+export function make(sysName: string, configFile: O.Option<string>) {
+  return pipe(
+    T.do,
+    T.bind("initActorRefMap", (_) =>
+      REF.makeRef<MAP.Map<string, A.Actor<any>>>(MAP.empty)
+    ),
+    T.let(
+      "actorSystem",
+      (_) => new ActorSystem(sysName, O.none, O.none, _.initActorRefMap, O.none)
+    ),
+    T.map((_) => _.actorSystem)
+  )
 }

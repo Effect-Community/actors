@@ -8,7 +8,7 @@ import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 
 import type * as AS from "./ActorSystem"
-import type { _ResponseOf, Throwable } from "./common"
+import type { _Response, _ResponseOf, Throwable } from "./common"
 import type * as EV from "./Envelope"
 import type * as SUP from "./Supervisor"
 
@@ -94,7 +94,7 @@ export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
         T.let("promise", () => msg[1]),
         T.let("receiver", (_) => this.receive(_.s, _.fa, context)),
         T.let("completer", (_) => ([s, a]: readonly [S, _ResponseOf<F1>]) =>
-          pipe(REF.set_(state, _.s), T.zipRight(P.succeed_(_.promise, a)), T.as(T.unit))
+          pipe(REF.set_(state, s), T.zipRight(P.succeed_(_.promise, a)), T.as(T.unit))
         ),
         T.chain((_) =>
           T.foldM_(
