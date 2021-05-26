@@ -1,8 +1,8 @@
 import type * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 
-import type * as A from "./Actor"
-import type { _ResponseOf, Throwable } from "./common"
+import type * as A from "../Actor"
+import type { _ResponseOf, Throwable } from "../common"
 
 export interface ActorRef<F1> {
   /**

@@ -6,10 +6,10 @@ import * as O from "@effect-ts/core/Option"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { pipe } from "@effect-ts/system/Function"
 
-import type * as A from "./Actor"
-import * as AR from "./ActorRef"
-import type { Throwable } from "./common"
-import type * as SUP from "./Supervisor"
+import type * as A from "../Actor"
+import * as AR from "../ActorRef"
+import type { Throwable } from "../common"
+import type * as SUP from "../Supervisor"
 
 /**
  * Context for actor used inside Stateful which provides self actor reference and actor creation/selection API
@@ -212,7 +212,7 @@ function buildPath(
   return `zio://${actorSystemName}@${host}${actorPath}`
 }
 
-const regexFullPath = /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|\/]+)$/i
+const regexFullPath = /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
 function resolvePath(
   path: string
 ): T.Effect<unknown, Throwable, readonly [string, number, number, string]> {
