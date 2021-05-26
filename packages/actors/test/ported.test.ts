@@ -1,5 +1,5 @@
 import * as T from "@effect-ts/core/Effect"
-import { pipe, tuple } from "@effect-ts/core/Function"
+import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 
 import * as AC from "../src/Actor"
@@ -20,20 +20,18 @@ class Get {
 
 type Message = Reset | Increase | Get
 
-const handler = new AC.Stateful<unknown, number, Message>(((
-  state: number,
-  msg: Message,
-  ctx: AS.Context
-) => {
-  switch (msg._tag) {
-    case "Reset":
-      return T.succeed(tuple(0, undefined))
-    case "Increase":
-      return T.succeed(tuple(state + 1, undefined))
-    case "Get":
-      return T.succeed(tuple(state, state))
+const handler = new AC.Stateful<unknown, number, Message>(
+  (state, msg, ctx, replyTo) => {
+    switch (msg._tag) {
+      case "Reset":
+        return T.succeed(replyTo(msg).withState(0))
+      case "Increase":
+        return T.succeed(replyTo(msg).withState(state + 1))
+      case "Get":
+        return T.succeed(replyTo(msg).withResponse(state))
+    }
   }
-}) as any)
+)
 
 describe("Actor", () => {
   it("basic actor", async () => {

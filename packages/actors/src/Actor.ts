@@ -64,13 +64,25 @@ export abstract class AbstractStateful<R, S, A> {
   ): (initial: S) => T.RIO<R & HasClock, Actor<A>>
 }
 
+interface StatefulReply<S, F1> {
+  <A extends F1>(msg: A): {
+    withStateAndResponse(
+      state: S,
+      response: _ResponseOf<A>
+    ): readonly [S, _ResponseOf<A>]
+    withState(state: S): readonly [S, void]
+    withResponse(response: _ResponseOf<A>): readonly [S, _ResponseOf<A>]
+  }
+}
+
 export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
   constructor(
-    readonly receive: <A extends F1>(
+    readonly receive: (
       state: S,
-      msg: A,
-      context: AS.Context
-    ) => T.RIO<R, readonly [S, _ResponseOf<A>]>
+      msg: F1,
+      context: AS.Context,
+      handleMsg: StatefulReply<S, F1>
+    ) => T.RIO<R, readonly [S, _ResponseOf<F1>]>
   ) {
     super()
   }
@@ -92,7 +104,13 @@ export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
         T.bind("s", () => REF.get(state)),
         T.let("fa", () => msg[0]),
         T.let("promise", () => msg[1]),
-        T.let("receiver", (_) => this.receive(_.s, _.fa, context)),
+        T.let("receiver", (_) =>
+          this.receive(_.s, _.fa, context, () => ({
+            withStateAndResponse: (s, r) => tuple(s, r),
+            withState: (s) => tuple(s, undefined),
+            withResponse: (r) => tuple(_.s, r)
+          }))
+        ),
         T.let("completer", (_) => ([s, a]: readonly [S, _ResponseOf<F1>]) =>
           pipe(REF.set_(state, s), T.zipRight(P.succeed_(_.promise, a)), T.as(T.unit))
         ),
