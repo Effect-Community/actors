@@ -1,0 +1,238 @@
+import * as REF from "@effect-ts/core/Effect/Ref";
+import * as HS from "@effect-ts/core/Collections/Immutable/HashSet";
+import * as T from "@effect-ts/core/Effect";
+import * as O from "@effect-ts/core/Option";
+import * as MAP from "@effect-ts/core/Collections/Immutable/Map";
+import * as A from "./Actor";
+import * as AR from "./ActorRef";
+import * as SUP from "./Supervisor";
+import { HasClock } from "@effect-ts/system/Clock";
+import { Throwable } from "./common";
+import { pipe } from "@effect-ts/system/Function";
+
+/**
+ * Context for actor used inside Stateful which provides self actor reference and actor creation/selection API
+ */
+export class Context {
+  constructor(
+    readonly path: string,
+    readonly actorSystem: ActorSystem,
+    readonly childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>
+  ) {}
+  /**
+   * Accessor for self actor reference
+   *
+   * @return actor reference in a task
+   */
+  self = this.actorSystem.select(this.path);
+  /**
+   * Creates actor and registers it to dependent actor system
+   *
+   * @param actorName name of the actor
+   * @param sup       - supervision strategy
+   * @param init      - initial state
+   * @param stateful  - actor's behavior description
+   * @tparam S  - state type
+   * @tparam F1 - DSL type
+   * @return reference to the created actor in effect that can't fail
+   */
+  make<R, S, F1>(
+    actorName: string,
+    sup: SUP.Supervisor<R>,
+    init: S,
+    stateful: A.Stateful<R, S, F1>
+  ): T.Effect<R & HasClock, Throwable, AR.ActorRef<F1>> {
+    return pipe(
+      T.do,
+      T.bind("actorRef", () =>
+        this.actorSystem.make(actorName, sup, init, stateful)
+      ),
+      T.bind("children", () => REF.get(this.childrenRef)),
+      T.tap((_) => REF.set_(this.childrenRef, HS.add_(_.children, _.actorRef))),
+      T.map((_) => _.actorRef)
+    );
+  }
+
+  /**
+   * Looks up for actor on local actor system, and in case of its absence - delegates it to remote internal module.
+   * If remote configuration was not provided for ActorSystem (so the remoting is disabled) the search will
+   * fail with ActorNotFoundException.
+   * Otherwise it will always create remote actor stub internally and return ActorRef as if it was found.   *
+   *
+   * @param path - absolute path to the actor
+   * @tparam F1 - actor's DSL type
+   * @return task if actor reference. Selection process might fail with "Actor not found error"
+   */
+  select<F1>(path: string) {
+    return this.actorSystem.select<F1>(path);
+  }
+}
+
+type RemoteConfig = {};
+export class ActorSystem {
+  constructor(
+    readonly actorSystemName: string,
+    readonly config: O.Option<string>,
+    readonly remoteConfig: O.Option<RemoteConfig>,
+    readonly refActorMap: REF.Ref<MAP.Map<string, A.Actor<any>>>,
+    readonly parentActor: O.Option<string>
+  ) {}
+
+  /**
+   * Creates actor and registers it to dependent actor system
+   *
+   * @param actorName name of the actor
+   * @param sup       - supervision strategy
+   * @param init      - initial state
+   * @param stateful  - actor's behavior description
+   * @tparam S - state type
+   * @tparam F - DSL type
+   * @return reference to the created actor in effect that can't fail
+   */
+  make<R, S, F1>(
+    actorName: string,
+    sup: SUP.Supervisor<R>,
+    init: S,
+    stateful: A.AbstractStateful<R, S, F1>
+  ): T.Effect<R & HasClock, Throwable, AR.ActorRef<F1>> {
+    return pipe(
+      T.do,
+      T.bind("map", () => REF.get(this.refActorMap)),
+      T.bind("finalName", (_) =>
+        buildFinalName(
+          O.getOrElse_(this.parentActor, () => ""),
+          actorName
+        )
+      ),
+      T.tap((_) =>
+        O.fold_(
+          MAP.lookup_(_.map, _.finalName),
+          () => T.unit,
+          () => T.fail("Actor " + _.finalName + " already exists")
+        )
+      ),
+      T.let("path", (_) =>
+        buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
+      ),
+      T.let(
+        "derivedSystem",
+        (_) =>
+          new ActorSystem(
+            this.actorSystemName,
+            this.config,
+            this.remoteConfig,
+            this.refActorMap,
+            O.some(_.finalName)
+          )
+      ),
+      T.bind("childrenSet", (_) => REF.makeRef(HS.make<AR.ActorRef<any>>())),
+      T.bind("actor", (_) =>
+        stateful.makeActor(
+          sup,
+          new Context(_.path, _.derivedSystem, _.childrenSet),
+          () => this.dropFromActorMap(_.path, _.childrenSet)
+        )(init)
+      ),
+      T.tap((_) =>
+        REF.set_(this.refActorMap, MAP.insert_(_.map, _.finalName, _.actor))
+      ),
+      T.map((_) => new AR.ActorRefLocal(_.path, _.actor))
+    );
+  }
+
+  dropFromActorMap(
+    path: string,
+    childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>
+  ) {
+    return pipe(
+      T.do,
+      T.bind("solvedPath", () => resolvePath(path)),
+      T.let("actorName", (_) => _.solvedPath[3]),
+      T.tap((_) =>
+        REF.update_(this.refActorMap, (m) => MAP.remove_(m, _.actorName))
+      ),
+      T.bind("children", (_) => REF.get(childrenRef)),
+      T.tap((_) => T.forEach_(_.children, (a) => a.stop)),
+      T.tap((_) => REF.set_(childrenRef, HS.make())),
+      T.zipRight(T.unit)
+    );
+  }
+
+  /**
+   * Looks up for actor on local actor system, and in case of its absence - delegates it to remote internal module.
+   * If remote configuration was not provided for ActorSystem (so the remoting is disabled) the search will
+   * fail with ActorNotFoundException.
+   * Otherwise it will always create remote actor stub internally and return ActorRef as if it was found.   *
+   *
+   * @param path - absolute path to the actor
+   * @tparam F - actor's DSL type
+   * @return task if actor reference. Selection process might fail with "Actor not found error"
+   */
+  select<F1>(path: string): T.Effect<unknown, Throwable, AR.ActorRef<F1>> {
+    return pipe(
+      T.do,
+      T.bind("solvedPath", (_) => resolvePath(path)),
+      T.let("pathActSysName", (_) => _.solvedPath[0]),
+      T.let("addr", (_) => _.solvedPath[1]),
+      T.let("port", (_) => _.solvedPath[2]),
+      T.let("actorName", (_) => _.solvedPath[3]),
+      T.bind("actorMap", (_) => REF.get(this.refActorMap)),
+      T.chain((_) => {
+        if (_.pathActSysName === this.actorSystemName) {
+          return pipe(
+            T.succeed(_),
+            T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
+            T.chain((_) =>
+              O.fold_(
+                _.actorRef,
+                () => T.fail("No such actor"),
+                (a: A.Actor<F1>) => T.succeed(new AR.ActorRefLocal(path, a))
+              )
+            )
+          );
+        } else {
+          return T.fail("No remote support ATM");
+        }
+      })
+    );
+  }
+}
+
+function buildFinalName(parentActorName: string, actorName: string) {
+  return actorName.length === 0
+    ? T.fail("Actor name should not be empty")
+    : T.succeed(parentActorName + "/" + actorName);
+}
+
+function buildPath(
+  actorSystemName: string,
+  actorPath: string,
+  remoteConfig: O.Option<RemoteConfig>
+): string {
+  const host = pipe(
+    remoteConfig,
+    //O.map(c => c.addr.value + ":" + c.port.value),
+    O.map((_) => ""),
+    O.getOrElse(() => "0.0.0.0:0000")
+  );
+  return `zio://${actorSystemName}@${host}${actorPath}`;
+}
+
+const regexFullPath =
+  /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|\/]+)$/gi;
+function resolvePath(
+  path: string
+): T.Effect<unknown, Throwable, readonly [string, number, number, string]> {
+  const match = path.match(regexFullPath);
+  if (match) {
+    return T.succeed([
+      match[1],
+      parseInt(match[2], 10),
+      parseInt(match[3], 10),
+      match[4],
+    ]);
+  }
+  return T.fail(
+    "Invalid path provided. The pattern is zio://YOUR_ACTOR_SYSTEM_NAME@ADDRES:PORT/RELATIVE_ACTOR_PATH"
+  );
+}
