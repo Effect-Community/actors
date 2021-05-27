@@ -82,7 +82,7 @@ export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
       msg: F1,
       context: AS.Context,
       handleMsg: StatefulReply<S, F1>
-    ) => T.RIO<R, readonly [S, _ResponseOf<F1>]>
+    ) => T.Effect<R, Throwable, readonly [S, _ResponseOf<F1>]>
   ) {
     super()
   }

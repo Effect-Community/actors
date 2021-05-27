@@ -10,7 +10,7 @@ export class Supervisor<R> {
 
   constructor(
     readonly supervise: <R0, A>(
-      zio: T.RIO<R0, A>,
+      zio: T.Effect<R0, C.Throwable, A>,
       error: C.Throwable
     ) => T.Effect<R & R0 & HasClock, void, A>
   ) {}
@@ -24,7 +24,7 @@ export function retry<R, A>(policy: SCH.Schedule<R, C.Throwable, A>): Supervisor
 
 export function retryOrElse<R, A>(
   policy: SCH.Schedule<R, C.Throwable, A>,
-  orElse: (e: C.Throwable, a: A) => T.RIO<R, void>
+  orElse: (e: C.Throwable, a: A) => T.Effect<R, C.Throwable, void>
 ): Supervisor<R> {
   return new Supervisor<R>((zio, error) =>
     T.mapError_(
