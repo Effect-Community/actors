@@ -8,7 +8,13 @@ import { pipe } from "@effect-ts/system/Function"
 
 import type * as A from "../Actor"
 import * as AR from "../ActorRef"
-import type { Throwable } from "../common"
+import {
+  ActorAlreadyExistsException,
+  InvalidActorName,
+  InvalidActorPath,
+  NoRemoteSupportException,
+  NoSuchActorException
+} from "../common"
 import type * as SUP from "../Supervisor"
 
 /**
@@ -42,7 +48,7 @@ export class Context {
     sup: SUP.Supervisor<R>,
     init: S,
     stateful: A.Stateful<R, S, F1>
-  ): T.Effect<R & HasClock, Throwable, AR.ActorRef<F1>> {
+  ): T.Effect<R & HasClock, ActorAlreadyExistsException, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("actorRef", () => this.actorSystem.make(actorName, sup, init, stateful)),
@@ -93,7 +99,7 @@ export class ActorSystem {
     sup: SUP.Supervisor<R>,
     init: S,
     stateful: A.AbstractStateful<R, S, F1>
-  ): T.Effect<R & HasClock, Throwable, AR.ActorRef<F1>> {
+  ): T.Effect<R & HasClock, ActorAlreadyExistsException, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("map", () => REF.get(this.refActorMap)),
@@ -107,7 +113,7 @@ export class ActorSystem {
         O.fold_(
           MAP.lookup_(_.map, _.finalName),
           () => T.unit,
-          () => T.fail("Actor " + _.finalName + " already exists")
+          () => T.fail(new ActorAlreadyExistsException(_.finalName))
         )
       ),
       T.let("path", (_) =>
@@ -162,7 +168,7 @@ export class ActorSystem {
    * @tparam F - actor's DSL type
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
-  select<F1>(path: string): T.Effect<unknown, Throwable, AR.ActorRef<F1>> {
+  select<F1>(path: string): T.Effect<unknown, InvalidActorPath, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("solvedPath", (_) => resolvePath(path)),
@@ -179,13 +185,13 @@ export class ActorSystem {
             T.chain((_) =>
               O.fold_(
                 _.actorRef,
-                () => T.fail("No such actor"),
+                () => T.fail(new NoSuchActorException(path)),
                 (a: A.Actor<F1>) => T.succeed(new AR.ActorRefLocal(path, a))
               )
             )
           )
         } else {
-          return T.fail("No remote support ATM")
+          return T.die(new NoRemoteSupportException())
         }
       })
     )
@@ -194,7 +200,7 @@ export class ActorSystem {
 
 function buildFinalName(parentActorName: string, actorName: string) {
   return actorName.length === 0
-    ? T.fail("Actor name should not be empty")
+    ? T.fail(new InvalidActorName(actorName))
     : T.succeed(parentActorName + "/" + actorName)
 }
 
@@ -215,7 +221,7 @@ function buildPath(
 const regexFullPath = /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
 function resolvePath(
   path: string
-): T.Effect<unknown, Throwable, readonly [string, number, number, string]> {
+): T.Effect<unknown, InvalidActorPath, readonly [string, number, number, string]> {
   const match = path.match(regexFullPath)
   if (match) {
     return T.succeed([
@@ -225,9 +231,7 @@ function resolvePath(
       "/" + match[4]
     ])
   }
-  return T.fail(
-    "Invalid path provided. The pattern is zio://YOUR_ACTOR_SYSTEM_NAME@ADDRES:PORT/RELATIVE_ACTOR_PATH"
-  )
+  return T.fail(new InvalidActorPath(path))
 }
 
 export function make(sysName: string, configFile: O.Option<string>) {
