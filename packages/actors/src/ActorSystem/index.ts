@@ -48,7 +48,11 @@ export class Context {
     sup: SUP.Supervisor<R>,
     init: S,
     stateful: A.Stateful<R, S, F1>
-  ): T.Effect<R & HasClock, ActorAlreadyExistsException, AR.ActorRef<F1>> {
+  ): T.Effect<
+    R & HasClock,
+    ActorAlreadyExistsException | InvalidActorName,
+    AR.ActorRef<F1>
+  > {
     return pipe(
       T.do,
       T.bind("actorRef", () => this.actorSystem.make(actorName, sup, init, stateful)),
@@ -70,6 +74,10 @@ export class Context {
    */
   select<F1>(path: string) {
     return this.actorSystem.select<F1>(path)
+  }
+
+  lookup<F1>(path: string) {
+    return this.actorSystem.lookup<F1>(path)
   }
 }
 
@@ -99,7 +107,11 @@ export class ActorSystem {
     sup: SUP.Supervisor<R>,
     init: S,
     stateful: A.AbstractStateful<R, S, F1>
-  ): T.Effect<R & HasClock, ActorAlreadyExistsException, AR.ActorRef<F1>> {
+  ): T.Effect<
+    R & HasClock,
+    ActorAlreadyExistsException | InvalidActorName,
+    AR.ActorRef<F1>
+  > {
     return pipe(
       T.do,
       T.bind("map", () => REF.get(this.refActorMap)),
@@ -145,6 +157,32 @@ export class ActorSystem {
     )
   }
 
+  selectOrMake<R, S, F1>(
+    actorName: string,
+    sup: SUP.Supervisor<R>,
+    init: S,
+    stateful: A.AbstractStateful<R, S, F1>
+  ): T.Effect<
+    R & HasClock,
+    InvalidActorPath | InvalidActorName | ActorAlreadyExistsException,
+    AR.ActorRef<F1>
+  > {
+    return pipe(
+      T.do,
+      T.bind("finalName", (_) =>
+        buildFinalName(
+          O.getOrElse_(this.parentActor, () => ""),
+          actorName
+        )
+      ),
+      T.let("path", (_) =>
+        buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
+      ),
+      T.chain((_) => this.lookup(_.path)),
+      T.chain(O.fold(() => this.make(actorName, sup, init, stateful), T.succeed))
+    )
+  }
+
   dropFromActorMap(path: string, childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>) {
     return pipe(
       T.do,
@@ -168,7 +206,18 @@ export class ActorSystem {
    * @tparam F - actor's DSL type
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
-  select<F1>(path: string): T.Effect<unknown, InvalidActorPath, AR.ActorRef<F1>> {
+  select<F1>(
+    path: string
+  ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, AR.ActorRef<F1>> {
+    return pipe(
+      this.lookup(path),
+      T.chain(O.fold(() => T.fail(new NoSuchActorException(path)), T.succeed))
+    )
+  }
+
+  lookup<F1>(
+    path: string
+  ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
     return pipe(
       T.do,
       T.bind("solvedPath", (_) => resolvePath(path)),
@@ -185,8 +234,8 @@ export class ActorSystem {
             T.chain((_) =>
               O.fold_(
                 _.actorRef,
-                () => T.fail(new NoSuchActorException(path)),
-                (a: A.Actor<F1>) => T.succeed(new AR.ActorRefLocal(path, a))
+                () => T.succeed(O.none),
+                (a: A.Actor<F1>) => T.succeed(O.some(new AR.ActorRefLocal(path, a)))
               )
             )
           )

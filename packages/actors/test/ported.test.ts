@@ -58,9 +58,9 @@ const esHandler = new ESS.EventSourcedStateful<unknown, number, Message, Event>(
   (state, msg, ctx, replyTo) => {
     switch (msg._tag) {
       case "Reset":
-        return T.succeed(replyTo(msg)(CH.from([new Resetted()]), (_) => undefined))
+        return T.succeed(replyTo(msg)(CH.single(new Resetted()), (_) => undefined))
       case "Increase":
-        return T.succeed(replyTo(msg)(CH.from([new Increased()]), (_) => undefined))
+        return T.succeed(replyTo(msg)(CH.single(new Increased()), (_) => undefined))
       case "Get":
         return T.succeed(replyTo(msg)(CH.empty(), (state) => state))
       case "GetAndReset":
