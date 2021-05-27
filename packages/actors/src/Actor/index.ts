@@ -12,11 +12,11 @@ import type { _Response, _ResponseOf, Throwable } from "../common"
 import type * as EV from "../Envelope"
 import type * as SUP from "../Supervisor"
 
-type PendingMessage<A> = readonly [A, P.Promise<Throwable, _ResponseOf<A>>]
+export type PendingMessage<A> = readonly [A, P.Promise<Throwable, _ResponseOf<A>>]
 
-export class Actor<A> {
+export class Actor<F1> {
   constructor(
-    readonly queue: Q.Queue<PendingMessage<A>>,
+    readonly queue: Q.Queue<PendingMessage<F1>>,
     readonly optOutActorSystem: () => T.Effect<unknown, Throwable, void>
   ) {}
 
@@ -31,7 +31,7 @@ export class Actor<A> {
     }
   }
 
-  ask(fa: A) {
+  ask<A extends F1>(fa: A) {
     return pipe(
       P.make<Throwable, _ResponseOf<A>>(),
       T.tap((promise) => Q.offer_(this.queue, tuple(fa, promise))),
@@ -39,7 +39,11 @@ export class Actor<A> {
     )
   }
 
-  tell(fa: A) {
+  /**
+   * This is a fire-and-forget operation, it justs put a message onto the actor queue,
+   * so there is no guarantee that it actually gets consumed by the actor.
+   */
+  tell(fa: F1) {
     return pipe(
       P.make<Throwable, any>(),
       T.chain((promise) => Q.offer_(this.queue, tuple(fa, promise))),
@@ -65,14 +69,10 @@ export abstract class AbstractStateful<R, S, A> {
 }
 
 interface StatefulReply<S, F1> {
-  <A extends F1>(msg: A): {
-    withStateAndResponse(
-      state: S,
-      response: _ResponseOf<A>
-    ): readonly [S, _ResponseOf<A>]
-    withState(state: S): readonly [S, void]
-    withResponse(response: _ResponseOf<A>): readonly [S, _ResponseOf<A>]
-  }
+  <A extends F1>(msg: A): (
+    state: S,
+    response: _ResponseOf<A>
+  ) => readonly [S, _ResponseOf<A>]
 }
 
 export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
@@ -105,11 +105,7 @@ export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
         T.let("fa", () => msg[0]),
         T.let("promise", () => msg[1]),
         T.let("receiver", (_) =>
-          this.receive(_.s, _.fa, context, () => ({
-            withStateAndResponse: (s, r) => tuple(s, r),
-            withState: (s) => tuple(s, undefined),
-            withResponse: (r) => tuple(_.s, r)
-          }))
+          this.receive(_.s, _.fa, context, () => (s, r) => tuple(s, r))
         ),
         T.let("completer", (_) => ([s, a]: readonly [S, _ResponseOf<F1>]) =>
           pipe(REF.set_(state, s), T.zipRight(P.succeed_(_.promise, a)), T.as(T.unit))

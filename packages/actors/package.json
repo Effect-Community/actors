@@ -28,6 +28,7 @@
       "Actor",
       "ActorRef",
       "ActorSystem",
+      "EventSourcedStateful",
       "Supervisor"
     ]
   },
