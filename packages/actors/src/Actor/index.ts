@@ -65,7 +65,7 @@ export abstract class AbstractStateful<R, S, A> {
     context: AS.Context,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize?: number
-  ): (initial: S) => T.RIO<R & HasClock, Actor<A>>
+  ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<A>>
 }
 
 interface StatefulReply<S, F1> {

@@ -1,26 +1,36 @@
-import { pipe } from "@effect-ts/core"
 import * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
+import * as S from "@effect-ts/core/Effect/Stream"
+import { pipe } from "@effect-ts/core/Function"
+import type { Has } from "@effect-ts/core/Has"
+import * as O from "@effect-ts/core/Option"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 
 import * as A from "../Actor"
 import type * as AS from "../ActorSystem"
 import type { _Response, _ResponseOf, Throwable } from "../common"
+import type { Journal, PersistenceId } from "../Journal"
+import { JournalFactory } from "../Journal"
 import type * as SUP from "../Supervisor"
 
 interface EventSourcedStatefulReply<S, EV, F1> {
   <A extends F1>(msg: A): (
     events: CH.Chunk<EV>,
-    reply: (state: S) => _ResponseOf<A>
+    reply: [_ResponseOf<A>] extends [void] ? void : (state: S) => _ResponseOf<A>
   ) => readonly [CH.Chunk<EV>, (s: S) => _ResponseOf<A>]
 }
 
-export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<R, S, F1> {
+export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<
+  R & Has<JournalFactory>,
+  S,
+  F1
+> {
   constructor(
+    readonly persistenceId: PersistenceId,
     readonly receive: (
       state: S,
       msg: F1,
@@ -43,21 +53,30 @@ export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<R, S,
     context: AS.Context,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
-  ): (initial: S) => T.RIO<R & HasClock, A.Actor<F1>> {
+  ): (
+    initial: S
+  ) => T.Effect<R & Has<JournalFactory> & HasClock, Throwable, A.Actor<F1>> {
     const process = (
       msg: A.PendingMessage<F1>,
-      state: REF.Ref<S>
-    ): T.RIO<R & HasClock, void> => {
+      state: REF.Ref<S>,
+      journal: Journal<S, EV>
+    ): T.Effect<R & HasClock, Throwable, void> => {
       return pipe(
         T.do,
         T.bind("s", () => REF.get(state)),
         T.let("fa", () => msg[0]),
         T.let("promise", () => msg[1]),
         T.let("receiver", (_) =>
-          this.receive(_.s, _.fa, context, () => (s, r) => tuple(s, r))
+          this.receive(_.s, _.fa, context, () => (s, r) =>
+            tuple(s, r ? r : () => undefined) as any
+          )
         ),
         T.let("effectfulCompleter", (_) => (s: S, a: _ResponseOf<F1>) =>
-          pipe(REF.set_(state, s), T.zipRight(P.succeed_(_.promise, a)), T.as(T.unit))
+          pipe(
+            REF.set_(state, s),
+            T.chain(() => P.succeed_(_.promise, a)),
+            T.zipRight(T.unit)
+          )
         ),
         T.let("idempotentCompleter", (_) => (a: _ResponseOf<F1>) =>
           pipe(P.succeed_(_.promise, a), T.zipRight(T.unit))
@@ -70,7 +89,10 @@ export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<R, S,
               : pipe(
                   T.do,
                   T.let("updatedState", () => this.applyEvents(ev, _.s)),
-                  T.tap((s) =>
+                  T.tap((_) =>
+                    journal.persistEntry(this.persistenceId, ev, O.some(_.updatedState))
+                  ),
+                  T.chain((s) =>
                     _.effectfulCompleter(s.updatedState, sa(s.updatedState))
                   ),
                   T.zipRight(T.unit)
@@ -82,7 +104,10 @@ export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<R, S,
             (e) =>
               pipe(
                 supervisor.supervise(_.receiver, e),
-                T.foldM((__) => P.fail_(_.promise, e), _.fullCompleter)
+                T.foldM(
+                  (__) => T.zipRight_(P.fail_(_.promise, e), T.unit),
+                  _.fullCompleter
+                )
               ),
             _.fullCompleter
           )
@@ -90,16 +115,47 @@ export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<R, S,
       )
     }
 
+    const retrieveJournal = pipe(
+      T.service(JournalFactory),
+      T.chain((jf) => jf.getJournal<S, EV>(context.actorSystem.actorSystemName))
+    )
+
     return (initial) =>
       pipe(
         T.do,
+        T.bind("journal", (_) => retrieveJournal),
         T.bind("state", () => REF.makeRef(initial)),
         T.bind("queue", () => Q.makeBounded<A.PendingMessage<F1>>(mailboxSize)),
         T.tap((_) =>
           pipe(
-            Q.take(_.queue),
-            T.chain((t) => process(t, _.state)),
-            T.forever,
+            // NOTE(mattiamanzati): We run the rehydration in the forked job,
+            // so that the mailbox can start receiving messages an be queued up
+            // until the actor can start rehydrating.
+            T.do,
+            T.bind("journalEntry", () => _.journal.getEntry(this.persistenceId)),
+            T.let("persistedState", (_) => _.journalEntry[0]),
+            T.let("persistedEvents", (_) => _.journalEntry[1]),
+            T.tap((__) =>
+              O.fold_(
+                __.persistedState,
+                () => T.unit,
+                (s) => REF.set_(_.state, s)
+              )
+            ),
+            T.tap((__) =>
+              pipe(
+                __.persistedEvents,
+                S.mapM((ev) => REF.update_(_.state, (s) => this.sourceEvent(s, ev))),
+                S.runDrain
+              )
+            ),
+            T.tap(() =>
+              pipe(
+                Q.take(_.queue),
+                T.tap((t) => process(t, _.state, _.journal)),
+                T.forever
+              )
+            ),
             T.fork
           )
         ),

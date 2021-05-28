@@ -7,6 +7,7 @@ import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
 import { _Response } from "../src/common"
 import * as ESS from "../src/EventSourcedStateful"
+import * as J from "../src/Journal"
 import * as SUP from "../src/Supervisor"
 
 class Reset {
@@ -55,12 +56,13 @@ class Resetted {
 type Event = Increased | Resetted
 
 const esHandler = new ESS.EventSourcedStateful<unknown, number, Message, Event>(
+  new J.PersistenceId({ id: "counter" }),
   (state, msg, ctx, replyTo) => {
     switch (msg._tag) {
       case "Reset":
-        return T.succeed(replyTo(msg)(CH.single(new Resetted()), (_) => undefined))
+        return T.succeed(replyTo(msg)(CH.single(new Resetted())))
       case "Increase":
-        return T.succeed(replyTo(msg)(CH.single(new Increased()), (_) => undefined))
+        return T.succeed(replyTo(msg)(CH.single(new Increased())))
       case "Get":
         return T.succeed(replyTo(msg)(CH.empty(), (state) => state))
       case "GetAndReset":
@@ -109,7 +111,8 @@ describe("Actor", () => {
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
       T.tap((_) => _.actor.tell(new Reset())),
-      T.bind("c2", (_) => _.actor.ask(new Get()))
+      T.bind("c2", (_) => _.actor.ask(new Get())),
+      T.provideServiceM(J.JournalFactory)(J.makeInMemJournal)
     )
 
     const result = await T.runPromise(program)
@@ -144,5 +147,25 @@ describe("Actor", () => {
 
     const result = await T.runPromise(program)
     expect(result.c1).toEqual(1)
+  })
+
+  it("event sourced actor can restore its state", async () => {
+    const program = pipe(
+      T.do,
+      T.bind("system", () => AS.make("test1", O.none)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, esHandler)),
+      T.tap((_) => _.actor.tell(new Increase())),
+      T.tap((_) => _.actor.tell(new Increase())),
+      T.bind("c1", (_) => _.actor.ask(new Get())),
+      //T.chain(() => T.do),
+      T.bind("system2", () => AS.make("test1", O.none)),
+      T.bind("actor2", (_) => _.system2.make("actor1", SUP.none, 0, esHandler)),
+      T.bind("c2", (_) => _.actor2.ask(new Get())),
+      T.provideServiceM(J.JournalFactory)(J.makeInMemJournal)
+    )
+
+    const result = await T.runPromise(program)
+    expect(result.c1).toEqual(2)
+    expect(result.c2).toEqual(result.c1)
   })
 })

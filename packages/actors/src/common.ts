@@ -26,3 +26,8 @@ export class InvalidActorPath {
   readonly _tag = "InvalidActorPath"
   constructor(readonly path: string) {}
 }
+
+export class ErrorMakingActorException {
+  readonly _tag = "ErrorMakingActorException"
+  constructor(readonly error: unknown) {}
+}

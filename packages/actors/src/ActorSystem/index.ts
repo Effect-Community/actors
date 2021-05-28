@@ -10,6 +10,7 @@ import type * as A from "../Actor"
 import * as AR from "../ActorRef"
 import {
   ActorAlreadyExistsException,
+  ErrorMakingActorException,
   InvalidActorName,
   InvalidActorPath,
   NoRemoteSupportException,
@@ -50,7 +51,7 @@ export class Context {
     stateful: A.Stateful<R, S, F1>
   ): T.Effect<
     R & HasClock,
-    ActorAlreadyExistsException | InvalidActorName,
+    ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
     AR.ActorRef<F1>
   > {
     return pipe(
@@ -109,7 +110,7 @@ export class ActorSystem {
     stateful: A.AbstractStateful<R, S, F1>
   ): T.Effect<
     R & HasClock,
-    ActorAlreadyExistsException | InvalidActorName,
+    ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
     AR.ActorRef<F1>
   > {
     return pipe(
@@ -144,11 +145,14 @@ export class ActorSystem {
       ),
       T.bind("childrenSet", (_) => REF.makeRef(HS.make<AR.ActorRef<any>>())),
       T.bind("actor", (_) =>
-        stateful.makeActor(
-          sup,
-          new Context(_.path, _.derivedSystem, _.childrenSet),
-          () => this.dropFromActorMap(_.path, _.childrenSet)
-        )(init)
+        pipe(
+          stateful.makeActor(
+            sup,
+            new Context(_.path, _.derivedSystem, _.childrenSet),
+            () => this.dropFromActorMap(_.path, _.childrenSet)
+          )(init),
+          T.catchAll((e) => T.fail(new ErrorMakingActorException(e)))
+        )
       ),
       T.tap((_) =>
         REF.set_(this.refActorMap, MAP.insert_(_.map, _.finalName, _.actor))
@@ -164,7 +168,10 @@ export class ActorSystem {
     stateful: A.AbstractStateful<R, S, F1>
   ): T.Effect<
     R & HasClock,
-    InvalidActorPath | InvalidActorName | ActorAlreadyExistsException,
+    | InvalidActorPath
+    | InvalidActorName
+    | ActorAlreadyExistsException
+    | ErrorMakingActorException,
     AR.ActorRef<F1>
   > {
     return pipe(

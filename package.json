@@ -34,7 +34,7 @@
     "@babel/core": "^7.13.14",
     "@effect-ts/build-utils": "^0.15.7",
     "@effect-ts/core": "^0.35.7",
-    "@effect-ts/tracing-plugin": "^0.10.1",
+    "@effect-ts/tracing-plugin": "^0.10.4",
     "@types/cpx": "^1.5.1",
     "@types/glob": "^7.1.3",
     "@types/jest": "^26.0.22",
