@@ -92,7 +92,7 @@ export function statefulHandler<
         [k in keyof Messages]: {
           _tag: InstanceOf<Messages[k]>["_tag"]
           payload: InstanceOf<Messages[k]>
-          reply: IsEqualTo<_ResponseOf<InstanceOf<Messages[k]>>, void> extends true
+          return: IsEqualTo<_ResponseOf<InstanceOf<Messages[k]>>, void> extends true
             ? (
                 state: S.ParsedShapeOf<StateSchema>
               ) => T.UIO<
@@ -140,8 +140,8 @@ export const counter = statefulHandler(
   S.number
 )((state) =>
   matchTag({
-    GetCount: (_) => _.reply(state, state),
-    IncCount: (_) => _.reply(state + 1)
+    GetCount: (_) => _.return(state, state),
+    IncCount: (_) => _.return(state + 1)
   })
 )
 
