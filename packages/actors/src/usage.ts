@@ -135,20 +135,26 @@ export class IncCount extends Message("IncCount", S.props({}), unit) {}
 
 const CounterMessage = messages(GetCount, IncCount)
 
+class CounterState extends S.Model<CounterState>()(
+  S.props({ count: S.prop(S.number) })
+) {}
+
 export const counter = statefulHandler(
   CounterMessage,
-  S.number
+  CounterState
 )((state) =>
   matchTag({
-    GetCount: (_) => _.return(state, state),
-    IncCount: (_) => _.return(state + 1)
+    GetCount: (_) => _.return(state, state.count),
+    IncCount: (_) => _.return(state.copy({ count: state.count + 1 }))
   })
 )
 
 export const program = pipe(
   T.do,
   T.bind("system", () => AS.make("test1", O.none)),
-  T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, counter)),
+  T.bind("actor", (_) =>
+    _.system.make("actor1", SUP.none, new CounterState({ count: 0 }), counter)
+  ),
   T.bind("c1", (_) => _.actor.ask(new GetCount())),
   T.tap((_) => _.actor.tell(new IncCount())),
   T.bind("c2", (_) => _.actor.ask(new GetCount()))
