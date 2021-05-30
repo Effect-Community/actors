@@ -68,7 +68,7 @@ export abstract class AbstractStateful<R, S, A> {
   ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<A>>
 }
 
-interface StatefulReply<S, F1> {
+export interface StatefulReply<S, F1> {
   <A extends F1>(msg: A): (
     state: S,
     response: _ResponseOf<A>
@@ -107,8 +107,15 @@ export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
         T.let("receiver", (_) =>
           this.receive(_.s, _.fa, context, () => (s, r) => tuple(s, r))
         ),
-        T.let("completer", (_) => ([s, a]: readonly [S, _ResponseOf<F1>]) =>
-          pipe(REF.set_(state, s), T.zipRight(P.succeed_(_.promise, a)), T.as(T.unit))
+        T.let(
+          "completer",
+          (_) =>
+            ([s, a]: readonly [S, _ResponseOf<F1>]) =>
+              pipe(
+                REF.set_(state, s),
+                T.zipRight(P.succeed_(_.promise, a)),
+                T.as(T.unit)
+              )
         ),
         T.chain((_) =>
           T.foldM_(

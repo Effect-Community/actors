@@ -1,20 +1,27 @@
-import type * as T from "@effect-ts/core/Effect"
+import * as T from "@effect-ts/core/Effect"
+import { hole, pipe } from "@effect-ts/core/Function"
+import * as O from "@effect-ts/core/Option"
 import type { IsEqualTo } from "@effect-ts/core/Utils"
 import * as S from "@effect-ts/schema"
+
+import type { AbstractStateful } from "./Actor"
+import * as AS from "./ActorSystem"
+import type { _Response, _ResponseOf, Throwable } from "./common"
+import * as SUP from "./Supervisor"
+
+export const unit = S.unknown["|>"](S.brand<void>())
 
 const ResponseSchemaSymbol = Symbol()
 const RequestSchemaSymbol = Symbol()
 
-type TaggedType<
-  Req extends S.SchemaUPI,
-  Res extends S.SchemaUPI,
-  Tag extends string
-> = S.ParsedShapeOf<Req> & {
-  readonly _tag: Tag
+type TaggedType<Req extends S.SchemaUPI, Res extends S.SchemaUPI, Tag extends string> =
+  S.ParsedShapeOf<Req> & {
+    readonly _tag: Tag
+    readonly [_Response]: () => S.ParsedShapeOf<Res>
 
-  readonly [ResponseSchemaSymbol]: Res
-  readonly [RequestSchemaSymbol]: Req
-}
+    readonly [ResponseSchemaSymbol]: Res
+    readonly [RequestSchemaSymbol]: Req
+  }
 
 interface MessageFactory<
   Tag extends string,
@@ -71,27 +78,82 @@ type InstanceOf<R extends AnyMessageFactory> = R extends {
   ? A
   : never
 
-type Opaque<A extends AnyMessageFactoryRecord> = A
-
-interface Actor<F1 extends AnyMessageFactoryRecord> {
-  ask<A extends InstanceOf<F1[keyof F1]>>(
-    msg: A
-  ): T.IO<unknown, S.ParsedShapeOf<F1[A["_tag"]]["ResponseSchema"]>>
+export function statefulHandler<
+  StateSchema extends S.SchemaUPI,
+  Messages extends AnyMessageFactoryRecord
+>(messages: Messages, state: StateSchema) {
+  return <R>(
+    handler: (
+      msg: {
+        [k in keyof Messages]: InstanceOf<Messages[k]> & {
+          reply: IsEqualTo<_ResponseOf<InstanceOf<Messages[k]>>, void> extends true
+            ? (
+                state: S.ParsedShapeOf<StateSchema>
+              ) => T.UIO<
+                readonly [
+                  S.ParsedShapeOf<StateSchema>,
+                  _ResponseOf<InstanceOf<Messages[k]>>
+                ]
+              >
+            : (
+                state: S.ParsedShapeOf<StateSchema>,
+                response: S.ParsedShapeOf<
+                  InstanceOf<Messages[k]>[typeof ResponseSchemaSymbol]
+                >
+              ) => T.UIO<
+                readonly [
+                  S.ParsedShapeOf<StateSchema>,
+                  _ResponseOf<InstanceOf<Messages[k]>>
+                ]
+              >
+        }
+      }[keyof Messages],
+      state: S.ParsedShapeOf<StateSchema>,
+      context: AS.Context
+    ) => T.Effect<
+      R,
+      Throwable,
+      readonly [
+        S.ParsedShapeOf<StateSchema>,
+        {
+          [k in keyof Messages]: _ResponseOf<InstanceOf<Messages[k]>>
+        }[keyof Messages]
+      ]
+    >
+  ): AbstractStateful<
+    R,
+    S.ParsedShapeOf<StateSchema>,
+    InstanceOf<Messages[keyof Messages]>
+  > => hole()
 }
 
 export class GetCount extends Message("GetCount", S.props({}), S.number) {}
 
-export class IncCount extends Message("IncCount", S.props({}), S.unknown) {}
+export class IncCount extends Message("IncCount", S.props({}), unit) {}
 
 const CounterMessage = messages(GetCount, IncCount)
 
-// WORKS
-declare const actor1: Actor<typeof CounterMessage>
-// ERROR
+export const counter = statefulHandler(
+  CounterMessage,
+  S.number
+)((msg, state) =>
+  T.gen(function* (_) {
+    switch (msg._tag) {
+      case "GetCount": {
+        return yield* _(msg.reply(state, state))
+      }
+      case "IncCount": {
+        return yield* _(msg.reply(state + 1))
+      }
+    }
+  })
+)
 
-interface CounterMessage extends Opaque<typeof CounterMessage> {}
-declare const actor2: Actor<CounterMessage>
-
-// ...
-const shouldBeUnknown = actor1.ask(new IncCount())
-const shouldBeNumber = actor2.ask(new GetCount())
+export const program = pipe(
+  T.do,
+  T.bind("system", () => AS.make("test1", O.none)),
+  T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, counter)),
+  T.bind("c1", (_) => _.actor.ask(new GetCount())),
+  T.tap((_) => _.actor.tell(new IncCount())),
+  T.bind("c2", (_) => _.actor.ask(new GetCount()))
+)
