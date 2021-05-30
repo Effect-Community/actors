@@ -2,6 +2,7 @@ import * as T from "@effect-ts/core/Effect"
 import { hole, pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import type { IsEqualTo } from "@effect-ts/core/Utils"
+import { matchTag } from "@effect-ts/core/Utils"
 import * as S from "@effect-ts/schema"
 
 import type { AbstractStateful } from "./Actor"
@@ -84,8 +85,13 @@ export function statefulHandler<
 >(messages: Messages, state: StateSchema) {
   return <R>(
     handler: (
+      state: S.ParsedShapeOf<StateSchema>,
+      context: AS.Context
+    ) => (
       msg: {
-        [k in keyof Messages]: InstanceOf<Messages[k]> & {
+        [k in keyof Messages]: {
+          _tag: InstanceOf<Messages[k]>["_tag"]
+          payload: InstanceOf<Messages[k]>
           reply: IsEqualTo<_ResponseOf<InstanceOf<Messages[k]>>, void> extends true
             ? (
                 state: S.ParsedShapeOf<StateSchema>
@@ -97,9 +103,7 @@ export function statefulHandler<
               >
             : (
                 state: S.ParsedShapeOf<StateSchema>,
-                response: S.ParsedShapeOf<
-                  InstanceOf<Messages[k]>[typeof ResponseSchemaSymbol]
-                >
+                response: _ResponseOf<InstanceOf<Messages[k]>>
               ) => T.UIO<
                 readonly [
                   S.ParsedShapeOf<StateSchema>,
@@ -107,9 +111,7 @@ export function statefulHandler<
                 ]
               >
         }
-      }[keyof Messages],
-      state: S.ParsedShapeOf<StateSchema>,
-      context: AS.Context
+      }[keyof Messages]
     ) => T.Effect<
       R,
       Throwable,
@@ -136,16 +138,10 @@ const CounterMessage = messages(GetCount, IncCount)
 export const counter = statefulHandler(
   CounterMessage,
   S.number
-)((msg, state) =>
-  T.gen(function* (_) {
-    switch (msg._tag) {
-      case "GetCount": {
-        return yield* _(msg.reply(state, state))
-      }
-      case "IncCount": {
-        return yield* _(msg.reply(state + 1))
-      }
-    }
+)((state) =>
+  matchTag({
+    GetCount: (_) => _.reply(state, state),
+    IncCount: (_) => _.reply(state + 1)
   })
 )
 
