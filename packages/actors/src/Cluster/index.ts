@@ -17,7 +17,11 @@ export const ClusterConfigSym = Symbol()
 
 const EO = pipe(OT.monad(T.Monad), (M) => ({
   map: M.map,
-  chain: chainF(M)
+  chain: chainF(M),
+  chainT:
+    <R2, E2, A, B>(f: (a: A) => T.Effect<R2, E2, B>) =>
+    <R, E>(fa: T.Effect<R, E, O.Option<A>>): T.Effect<R2 & R, E2 | E, O.Option<B>> =>
+      chainF(M)((a: A) => T.map_(f(a), O.some))(fa)
 }))
 
 export interface ConfigInput {
@@ -115,8 +119,7 @@ export const makeCluster = M.gen(function* (_) {
     cli.getChildren(membersDir),
     T.map(Chunk.head),
     EO.map((s) => `${membersDir}/${s}`),
-    EO.chain(cli.getData),
-    EO.map((b) => new HostPort(JSON.parse(b.toString("utf8"))))
+    EO.chainT((path) => getMemberHostPort(path))
   )
 
   return {
