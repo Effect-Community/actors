@@ -85,10 +85,9 @@ export const makeCluster = M.gen(function* (_) {
 
   const nodeId = nodePath.substr(prefix.length)
 
-  const members = pipe(
-    cli.getChildren(membersDir),
-    T.chain(
-      T.forEach((childPath) =>
+  const getMemberHostPort = yield* _(
+    T.memoize(
+      (childPath: string): T.Effect<unknown, K.ZooError, HostPort> =>
         pipe(
           cli.getData(`${membersDir}/${childPath}`),
           T.chain(
@@ -104,8 +103,12 @@ export const makeCluster = M.gen(function* (_) {
           ),
           T.map((b) => new HostPort(JSON.parse(b.toString("utf8"))))
         )
-      )
     )
+  )
+
+  const members = pipe(
+    cli.getChildren(membersDir),
+    T.chain(T.forEach(getMemberHostPort))
   )
 
   const leader = pipe(
