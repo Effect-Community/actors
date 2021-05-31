@@ -47,51 +47,75 @@ export const makeKeeperClient = M.gen(function* (_) {
     })["|>"](M.make((cli) => T.succeedWith(() => cli.close())))
   )
 
-  function create(path: string) {
+  function create(
+    path: string,
+    opt: { data?: Buffer; mode?: keyof typeof Z.CreateMode },
+    __trace?: string
+  ): T.Effect<unknown, ZooError, string>
+  function create(path: string, __trace?: string): T.Effect<unknown, ZooError, string>
+  function create(
+    path: string,
+    opt?: { data?: Buffer; mode?: keyof typeof Z.CreateMode } | string,
+    __trace?: string
+  ): T.Effect<unknown, ZooError, string> {
     return T.effectAsync<unknown, ZooError, string>((cb) => {
-      client.create(path, (e, p) => {
+      const handler = (e: Error | Z.Exception, p: string): void => {
         if (e) {
-          cb(T.fail(new ZooError({ op: "CREATE", message: JSON.stringify(e) })))
+          cb(
+            T.fail(new ZooError({ op: "CREATE", message: JSON.stringify(e) }), __trace)
+          )
         } else {
-          cb(T.succeed(p))
+          cb(T.succeed(p, __trace))
         }
-      })
+      }
+      if (typeof opt === "object") {
+        if (opt && typeof opt.data !== "undefined" && typeof opt.mode !== "undefined") {
+          client.create(path, opt.data, Z.CreateMode[opt.mode], handler)
+        } else if (opt && typeof opt.data !== "undefined") {
+          client.create(path, opt.data, handler)
+        } else if (opt && typeof opt.mode !== "undefined") {
+          client.create(path, Z.CreateMode[opt.mode], handler)
+        } else {
+          client.create(path, handler)
+        }
+      } else {
+        client.create(path, handler)
+      }
     })
   }
 
-  function createWithData(path: string, data: Buffer) {
+  function mkdir(
+    path: string,
+    opt: { data?: Buffer; mode?: keyof typeof Z.CreateMode },
+    __trace?: string
+  ): T.Effect<unknown, ZooError, string>
+  function mkdir(path: string, __trace?: string): T.Effect<unknown, ZooError, string>
+  function mkdir(
+    path: string,
+    opt?: { data?: Buffer; mode?: keyof typeof Z.CreateMode } | string,
+    __trace?: string
+  ): T.Effect<unknown, ZooError, string> {
     return T.effectAsync<unknown, ZooError, string>((cb) => {
-      client.create(path, data, (e, p) => {
+      const handler = (e: Error | Z.Exception, p: string): void => {
         if (e) {
-          cb(T.fail(new ZooError({ op: "CREATE", message: JSON.stringify(e) })))
+          cb(T.fail(new ZooError({ op: "MKDIR", message: JSON.stringify(e) }), __trace))
         } else {
-          cb(T.succeed(p))
+          cb(T.succeed(p, __trace))
         }
-      })
-    })
-  }
-
-  function mkdir(path: string) {
-    return T.effectAsync<unknown, ZooError, string>((cb) => {
-      client.mkdirp(path, (e, p) => {
-        if (e) {
-          cb(T.fail(new ZooError({ op: "CREATE", message: JSON.stringify(e) })))
+      }
+      if (typeof opt === "object") {
+        if (opt && typeof opt.data !== "undefined" && typeof opt.mode !== "undefined") {
+          client.mkdirp(path, opt.data, Z.CreateMode[opt.mode], handler)
+        } else if (opt && typeof opt.data !== "undefined") {
+          client.mkdirp(path, opt.data, handler)
+        } else if (opt && typeof opt.mode !== "undefined") {
+          client.mkdirp(path, Z.CreateMode[opt.mode], handler)
         } else {
-          cb(T.succeed(p))
+          client.mkdirp(path, handler)
         }
-      })
-    })
-  }
-
-  function mkdirWithData(path: string, data: Buffer) {
-    return T.effectAsync<unknown, ZooError, string>((cb) => {
-      client.mkdirp(path, data, (e, p) => {
-        if (e) {
-          cb(T.fail(new ZooError({ op: "CREATE", message: JSON.stringify(e) })))
-        } else {
-          cb(T.succeed(p))
-        }
-      })
+      } else {
+        client.mkdirp(path, handler)
+      }
     })
   }
 
@@ -133,16 +157,27 @@ export const makeKeeperClient = M.gen(function* (_) {
     })
   }
 
+  function getData(path: string) {
+    return T.effectAsync<unknown, ZooError, Buffer>((cb) => {
+      client.getData(path, (e, b) => {
+        if (e) {
+          cb(T.fail(new ZooError({ op: "GET_DATA", message: JSON.stringify(e) })))
+        } else {
+          cb(T.succeed(b))
+        }
+      })
+    })
+  }
+
   return {
     [KeeperClientSym]: KeeperClientSym,
     client,
     create,
-    createWithData,
     mkdir,
-    mkdirWithData,
     monitor,
     waitDelete,
-    remove
+    remove,
+    getData
   } as const
 })
 

@@ -22,11 +22,11 @@ describe("Zookeeper", () => {
 
       const collectFiber = yield* _(pipe(client.waitDelete("/demo/ok"), T.fork))
 
-      expect(yield* _(client.mkdirWithData("/demo-2", Buffer.from("yeah")))).toEqual(
+      expect(yield* _(client.mkdir("/demo-2", { data: Buffer.from("yeah") }))).toEqual(
         "/demo-2"
       )
       expect(
-        yield* _(client.createWithData("/demo-2/ok", Buffer.from("yeah yeah")))
+        yield* _(client.create("/demo-2/ok", { data: Buffer.from("yeah yeah") }))
       ).toEqual("/demo-2/ok")
 
       yield* _(client.remove("/demo/ok"))
