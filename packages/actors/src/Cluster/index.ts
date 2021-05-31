@@ -119,7 +119,8 @@ export const makeCluster = M.gen(function* (_) {
     [ClusterSym]: ClusterSym,
     nodeId,
     members,
-    leader
+    leader,
+    system
   } as const
 })
 
