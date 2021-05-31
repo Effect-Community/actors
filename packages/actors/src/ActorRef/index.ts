@@ -31,10 +31,12 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * @return
    */
   readonly path: T.UIO<AA.Address<F1>>
+
   /**
    * Stops actor and all its children
    */
   readonly stop: T.IO<Throwable, CH.Chunk<void>>
+
   /**
    * Contains the Schema for the commands and responses of the ActorRef
    */

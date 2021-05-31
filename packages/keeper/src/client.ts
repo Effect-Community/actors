@@ -170,6 +170,18 @@ export const makeKeeperClient = M.gen(function* (_) {
     })
   }
 
+  function getChildren(path: string) {
+    return T.effectAsync<unknown, ZooError, readonly string[]>((cb) => {
+      client.getChildren(path, (e, b) => {
+        if (e) {
+          cb(T.fail(new ZooError({ op: "GET_DATA", message: JSON.stringify(e) })))
+        } else {
+          cb(T.succeed(b))
+        }
+      })
+    })
+  }
+
   return {
     [KeeperClientSym]: KeeperClientSym,
     client,
@@ -178,7 +190,8 @@ export const makeKeeperClient = M.gen(function* (_) {
     monitor,
     waitDelete,
     remove,
-    getData
+    getData,
+    getChildren
   } as const
 })
 

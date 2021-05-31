@@ -33,6 +33,7 @@
     ]
   },
   "peerDependencies": {
-    "@effect-ts/core": "^0.40.0"
+    "@effect-ts/core": "^0.40.0",
+    "@effect-ts/keeper": "^0.0.0"
   }
 }
