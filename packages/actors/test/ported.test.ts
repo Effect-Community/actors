@@ -4,6 +4,7 @@ import * as REF from "@effect-ts/core/Effect/Ref"
 import * as SE from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
+import * as TE from "@effect-ts/jest/Test"
 import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
@@ -79,8 +80,9 @@ const esHandler = ESS.eventSourcedStateful(Message, S.number, Event)(
 )
 
 describe("Actor", () => {
-  it("basic actor", async () => {
-    const program = pipe(
+  const { it } = TE.runtime()
+  it("basic actor", () =>
+    pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
       T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, handler)),
@@ -88,16 +90,17 @@ describe("Actor", () => {
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
       T.tap((_) => _.actor.tell(new Reset())),
-      T.bind("c2", (_) => _.actor.ask(new Get()))
-    )
+      T.bind("c2", (_) => _.actor.ask(new Get())),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(2)
+          expect(result.c2).toEqual(0)
+        })
+      )
+    ))
 
-    const result = await T.runPromise(program)
-    expect(result.c1).toEqual(2)
-    expect(result.c2).toEqual(0)
-  })
-
-  it("event sourced actor", async () => {
-    const program = pipe(
+  it("event sourced actor", () =>
+    pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
       T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, esHandler)),
@@ -106,31 +109,33 @@ describe("Actor", () => {
       T.bind("c1", (_) => _.actor.ask(new Get())),
       T.tap((_) => _.actor.tell(new Reset())),
       T.bind("c2", (_) => _.actor.ask(new Get())),
-      T.provideServiceM(J.JournalFactory)(J.makeInMemJournal)
-    )
+      T.provideServiceM(J.JournalFactory)(J.makeInMemJournal),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(2)
+          expect(result.c2).toEqual(0)
+        })
+      )
+    ))
 
-    const result = await T.runPromise(program)
-    expect(result.c1).toEqual(2)
-    expect(result.c2).toEqual(0)
-  })
-
-  it("actor selection", async () => {
-    const program = pipe(
+  it("actor selection", () =>
+    pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
       T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, handler)),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new GetAndReset())),
-      T.bind("c2", (_) => _.actor.ask(new Get()))
-    )
+      T.bind("c2", (_) => _.actor.ask(new Get())),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(1)
+          expect(result.c2).toEqual(0)
+        })
+      )
+    ))
 
-    const result = await T.runPromise(program)
-    expect(result.c1).toEqual(1)
-    expect(result.c2).toEqual(0)
-  })
-
-  it("actor can self-message", async () => {
-    const program = pipe(
+  it("actor can self-message", () =>
+    pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
       T.tap((_) => _.system.make("actor1", SUP.none, 0, handler)),
@@ -138,34 +143,35 @@ describe("Actor", () => {
         _.system.select(AA.address("zio://test1@0.0.0.0:0000/actor1", Message))
       ),
       T.tap((_) => _.actor.tell(new Increase())),
-      T.bind("c1", (_) => _.actor.ask(new Get()))
-    )
+      T.bind("c1", (_) => _.actor.ask(new Get())),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(1)
+        })
+      )
+    ))
 
-    const result = await T.runPromise(program)
-    expect(result.c1).toEqual(1)
-  })
-
-  it("event sourced actor can restore its state", async () => {
-    const program = pipe(
+  it("event sourced actor can restore its state", () =>
+    pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
       T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, esHandler)),
       T.tap((_) => _.actor.tell(new Increase())),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
-      //T.chain(() => T.do),
       T.bind("system2", () => AS.make("test1", O.none)),
       T.bind("actor2", (_) => _.system2.make("actor1", SUP.none, 0, esHandler)),
       T.bind("c2", (_) => _.actor2.ask(new Get())),
-      T.provideServiceM(J.JournalFactory)(J.makeInMemJournal)
-    )
+      T.provideServiceM(J.JournalFactory)(J.makeInMemJournal),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(2)
+          expect(result.c2).toEqual(result.c1)
+        })
+      )
+    ))
 
-    const result = await T.runPromise(program)
-    expect(result.c1).toEqual(2)
-    expect(result.c2).toEqual(result.c1)
-  })
-
-  it("error recovery by retrying", async () => {
+  it("error recovery by retrying", () => {
     class Tick extends AM.Message("Tick", S.props({}), unit) {}
     const TickMessage = AM.messages(Tick)
 
@@ -192,10 +198,14 @@ describe("Actor", () => {
       T.bind("system", () => AS.make("test2", O.none)),
       T.bind("actor", (_) => _.system.make("actor1", _.policy, 0, tickHandler(_.ref))),
       T.tap((_) => _.actor.ask(new Tick())),
-      T.bind("c1", (_) => REF.get(_.ref))
+      T.bind("c1", (_) => REF.get(_.ref)),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(10)
+        })
+      )
     )
 
-    const result = await T.runPromise(program)
-    expect(result.c1).toEqual(10)
+    return program
   })
 })
