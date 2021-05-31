@@ -22,7 +22,10 @@ class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 const Message = AM.messages(Reset, Increase, Get, GetAndReset)
 type Message = AM.TypeOf<typeof Message>
 
-const handler = AC.stateful(Message)<number>()((state, ctx) =>
+const handler = AC.stateful(
+  Message,
+  S.number
+)((state, ctx) =>
   matchTag({
     Reset: (_) => _.return(0),
     Increase: (_) => _.return(state + 1),
@@ -51,7 +54,7 @@ class Resetted extends S.Schemed(
 const Event = S.union({ Increased: S.schema(Increased), Resetted: S.schema(Resetted) })
 type Event = S.ParsedShapeOf<typeof Event>
 
-const esHandler = ESS.eventSourcedStateful(Message)(S.number, Event)(
+const esHandler = ESS.eventSourcedStateful(Message, S.number, Event)(
   new J.PersistenceId({ id: "counter" }),
   (state, ctx) =>
     matchTag({

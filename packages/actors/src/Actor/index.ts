@@ -4,6 +4,7 @@ import * as T from "@effect-ts/core/Effect"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
+import type * as SCH from "@effect-ts/schema"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 
@@ -88,17 +89,18 @@ type StatefulResponse<S, F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: readonly [S, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>]
 }[AM.TagsOf<F1>]
 
-export function stateful<F1 extends AM.AnyMessage>(messages: AM.MessageRegistry<F1>) {
-  return <S>() =>
-    <R>(
-      receive: (
-        state: S,
-        context: AS.Context
-      ) => (
-        msg: StatefulEnvelope<S, F1>
-      ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
-    ) =>
-      new Stateful<R, S, F1>(messages, receive)
+export function stateful<S, F1 extends AM.AnyMessage>(
+  messages: AM.MessageRegistry<F1>,
+  stateSchema: SCH.Standard<S>
+) {
+  return <R>(
+    receive: (
+      state: S,
+      context: AS.Context
+    ) => (
+      msg: StatefulEnvelope<S, F1>
+    ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
+  ) => new Stateful<R, S, F1>(messages, stateSchema, receive)
 }
 
 export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
@@ -108,6 +110,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
 > {
   constructor(
     readonly messages: AM.MessageRegistry<F1>,
+    readonly stateSchema: SCH.Standard<S>,
     readonly receive: (
       state: S,
       context: AS.Context

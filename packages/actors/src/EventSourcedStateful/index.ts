@@ -44,28 +44,29 @@ type EventSourcedResponse<S, F1 extends AM.AnyMessage, EV> = {
   ]
 }[AM.TagsOf<F1>]
 
-export function eventSourcedStateful<F1 extends AM.AnyMessage>(
-  messages: AM.MessageRegistry<F1>
+export function eventSourcedStateful<S, F1 extends AM.AnyMessage, EV>(
+  messages: AM.MessageRegistry<F1>,
+  stateSchema: SCH.Standard<S>,
+  eventSchema: SCH.Standard<EV>
 ) {
-  return <S, EV>(stateSchema: SCH.Standard<S>, eventSchema: SCH.Standard<EV>) =>
-    <R>(
-      persistenceId: PersistenceId,
-      receive: (
-        state: S,
-        context: AS.Context
-      ) => (
-        msg: EventSourcedEnvelope<S, F1, EV>
-      ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
-      sourceEvent: (state: S) => (event: EV) => S
-    ) =>
-      new EventSourcedStateful<R, S, F1, EV>(
-        messages,
-        stateSchema,
-        eventSchema,
-        persistenceId,
-        receive,
-        sourceEvent
-      )
+  return <R>(
+    persistenceId: PersistenceId,
+    receive: (
+      state: S,
+      context: AS.Context
+    ) => (
+      msg: EventSourcedEnvelope<S, F1, EV>
+    ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
+    sourceEvent: (state: S) => (event: EV) => S
+  ) =>
+    new EventSourcedStateful<R, S, F1, EV>(
+      messages,
+      stateSchema,
+      eventSchema,
+      persistenceId,
+      receive,
+      sourceEvent
+    )
 }
 
 export class EventSourcedStateful<
