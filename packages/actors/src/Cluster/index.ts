@@ -62,6 +62,10 @@ export class HostPort extends Tagged("HostPort")<{
   readonly port: number
 }> {}
 
+export class ClusterException extends Tagged("ClusterException")<{
+  readonly message: string
+}> {}
+
 export const makeCluster = M.gen(function* (_) {
   const { host, port, system } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
@@ -86,7 +90,17 @@ export const makeCluster = M.gen(function* (_) {
       T.forEach((childPath) =>
         pipe(
           cli.getData(`${membersDir}/${childPath}`),
-          T.chain(T.getOrFail),
+          T.chain(
+            O.fold(
+              () =>
+                T.die(
+                  new ClusterException({
+                    message: `cannot find metadata on path: ${membersDir}/${childPath}`
+                  })
+                ),
+              (b) => T.succeed(b)
+            )
+          ),
           T.map((b) => new HostPort(JSON.parse(b.toString("utf8"))))
         )
       )
