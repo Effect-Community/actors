@@ -10,7 +10,10 @@ export const makeKeeperTestConfig = M.gen(function* (_) {
   const container = yield* _(
     pipe(
       T.promise(() =>
-        new GenericContainer("zookeeper:3.7.0").withExposedPorts(2181).start()
+        new GenericContainer("zookeeper:3.7.0")
+          .withEnv("ZOO_MY_ID", "1")
+          .withExposedPorts(2181)
+          .start()
       ),
       M.make((c) => T.promise(() => c.stop()))
     )
