@@ -19,6 +19,8 @@ jobs:
         run: |
           npm install -g yarn
           yarn
+          docker pull cristianrgreco/ryuk:0.4.0
+          docker pull zookeeper:3.7.0
           yarn run ci
         env:
           CI: "true"
