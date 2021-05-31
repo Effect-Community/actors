@@ -1,5 +1,5 @@
 import { Tagged } from "@effect-ts/core/Case"
-import * as A from "@effect-ts/core/Collections/Immutable/Array"
+import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -85,7 +85,8 @@ export const makeCluster = M.gen(function* (_) {
 
   const nodeId = nodePath.substr(prefix.length)
 
-  const members = cli.getChildren(membersDir)["|>"](
+  const members = pipe(
+    cli.getChildren(membersDir),
     T.chain(
       T.forEach((childPath) =>
         pipe(
@@ -109,7 +110,7 @@ export const makeCluster = M.gen(function* (_) {
 
   const leader = pipe(
     cli.getChildren(membersDir),
-    T.map(A.head),
+    T.map(Chunk.head),
     EO.map((s) => `${membersDir}/${s}`),
     EO.chain(cli.getData),
     EO.map((b) => new HostPort(JSON.parse(b.toString("utf8"))))

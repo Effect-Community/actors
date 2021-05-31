@@ -1,10 +1,12 @@
 import { Tagged } from "@effect-ts/core/Case"
+import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import * as P from "@effect-ts/core/Effect/Promise"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
+import * as Ord from "@effect-ts/core/Ord"
 import type { _A } from "@effect-ts/system/Utils"
 import * as Z from "node-zookeeper-client"
 
@@ -171,12 +173,12 @@ export const makeKeeperClient = M.gen(function* (_) {
   }
 
   function getChildren(path: string) {
-    return T.effectAsync<unknown, ZooError, readonly string[]>((cb) => {
+    return T.effectAsync<unknown, ZooError, Chunk.Chunk<string>>((cb) => {
       client.getChildren(path, (e, b) => {
         if (e) {
           cb(T.fail(new ZooError({ op: "GET_DATA", message: JSON.stringify(e) })))
         } else {
-          cb(T.succeed(b))
+          cb(T.succeed(Chunk.from(b)["|>"](Chunk.sort(Ord.string))))
         }
       })
     })

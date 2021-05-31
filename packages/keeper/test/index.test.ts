@@ -12,7 +12,7 @@ describe("Zookeeper", () => {
     J.runtime((TestEnv) => TestEnv[">+>"](TestKeeperConfig[">>>"](Z.LiveKeeperClient)))
   )
 
-  it("dummy", () =>
+  it("client should interact", () =>
     T.gen(function* (_) {
       const client = yield* _(Z.KeeperClient)
 
