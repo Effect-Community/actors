@@ -8,6 +8,7 @@ import { pipe } from "@effect-ts/system/Function"
 
 import type * as A from "../Actor"
 import * as AR from "../ActorRef"
+import * as AA from "../Address"
 import {
   ActorAlreadyExistsException,
   ErrorMakingActorException,
@@ -22,9 +23,9 @@ import type * as SUP from "../Supervisor"
 /**
  * Context for actor used inside Stateful which provides self actor reference and actor creation/selection API
  */
-export class Context {
+export class Context<FC extends AM.AnyMessage> {
   constructor(
-    readonly path: string,
+    readonly address: AA.Address<FC>,
     readonly actorSystem: ActorSystem,
     readonly childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>
   ) {}
@@ -33,7 +34,7 @@ export class Context {
    *
    * @return actor reference in a task
    */
-  self = this.actorSystem.select(this.path)
+  self = this.actorSystem.select(this.address)
   /**
    * Creates actor and registers it to dependent actor system
    *
@@ -70,16 +71,16 @@ export class Context {
    * fail with ActorNotFoundException.
    * Otherwise it will always create remote actor stub internally and return ActorRef as if it was found.   *
    *
-   * @param path - absolute path to the actor
+   * @param address - absolute path to the actor
    * @tparam F1 - actor's DSL type
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
-  select<F1 extends AM.AnyMessage>(path: string) {
-    return this.actorSystem.select<F1>(path)
+  select<F1 extends AM.AnyMessage>(address: AA.Address<F1>) {
+    return this.actorSystem.select<F1>(address)
   }
 
-  lookup<F1 extends AM.AnyMessage>(path: string) {
-    return this.actorSystem.lookup<F1>(path)
+  lookup<F1 extends AM.AnyMessage>(address: AA.Address<F1>) {
+    return this.actorSystem.lookup<F1>(address)
   }
 }
 
@@ -134,6 +135,7 @@ export class ActorSystem {
       T.let("path", (_) =>
         buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
       ),
+      T.let("address", (_) => AA.address(_.path, stateful.messages)),
       T.let(
         "derivedSystem",
         (_) =>
@@ -150,7 +152,7 @@ export class ActorSystem {
         pipe(
           stateful.makeActor(
             sup,
-            new Context(_.path, _.derivedSystem, _.childrenSet),
+            new Context(_.address, _.derivedSystem, _.childrenSet),
             () => this.dropFromActorMap(_.path, _.childrenSet)
           )(init),
           T.catchAll((e) => T.fail(new ErrorMakingActorException(e)))
@@ -159,7 +161,7 @@ export class ActorSystem {
       T.tap((_) =>
         REF.set_(this.refActorMap, MAP.insert_(_.map, _.finalName, _.actor))
       ),
-      T.map((_) => new AR.ActorRefLocal(_.path, _.actor))
+      T.map((_) => new AR.ActorRefLocal(_.address, _.actor))
     )
   }
 
@@ -187,7 +189,7 @@ export class ActorSystem {
       T.let("path", (_) =>
         buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
       ),
-      T.chain((_) => this.lookup(_.path)),
+      T.chain((_) => this.lookup(AA.address(_.path, stateful.messages))),
       T.chain(O.fold(() => this.make(actorName, sup, init, stateful), T.succeed))
     )
   }
@@ -216,20 +218,20 @@ export class ActorSystem {
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
   select<F1 extends AM.AnyMessage>(
-    path: string
+    address: AA.Address<F1>
   ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, AR.ActorRef<F1>> {
     return pipe(
-      this.lookup(path),
-      T.chain(O.fold(() => T.fail(new NoSuchActorException(path)), T.succeed))
+      this.lookup(address),
+      T.chain(O.fold(() => T.fail(new NoSuchActorException(address.path)), T.succeed))
     )
   }
 
   lookup<F1 extends AM.AnyMessage>(
-    path: string
+    address: AA.Address<F1>
   ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
     return pipe(
       T.do,
-      T.bind("solvedPath", (_) => resolvePath(path)),
+      T.bind("solvedPath", (_) => resolvePath(address.path)),
       T.let("pathActSysName", (_) => _.solvedPath[0]),
       T.let("addr", (_) => _.solvedPath[1]),
       T.let("port", (_) => _.solvedPath[2]),
@@ -244,7 +246,8 @@ export class ActorSystem {
               O.fold_(
                 _.actorRef,
                 () => T.succeed(O.none),
-                (a: A.Actor<F1>) => T.succeed(O.some(new AR.ActorRefLocal(path, a)))
+                (actor: A.Actor<F1>) =>
+                  T.succeed(O.some(new AR.ActorRefLocal(address, actor)))
               )
             )
           )

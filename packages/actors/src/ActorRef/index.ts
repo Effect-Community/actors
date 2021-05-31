@@ -2,6 +2,7 @@ import type * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 
 import type * as A from "../Actor"
+import type * as AA from "../Address"
 import type { Throwable } from "../common"
 import type * as AM from "../Message"
 
@@ -29,7 +30,7 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * Get referential absolute actor path
    * @return
    */
-  readonly path: T.UIO<string>
+  readonly path: T.UIO<AA.Address<F1>>
   /**
    * Stops actor and all its children
    */
@@ -42,7 +43,7 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
 
 export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   constructor(
-    private readonly actorPath: string,
+    private readonly address: AA.Address<F1>,
     private readonly actor: A.Actor<F1>
   ) {}
 
@@ -54,6 +55,6 @@ export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   }
 
   readonly stop = this.actor.stop
-  readonly path = T.succeed(this.actorPath)
+  readonly path = T.succeed(this.address)
   readonly messages = this.actor.messages
 }

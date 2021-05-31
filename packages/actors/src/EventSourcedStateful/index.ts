@@ -53,7 +53,7 @@ export function eventSourcedStateful<S, F1 extends AM.AnyMessage, EV>(
     persistenceId: PersistenceId,
     receive: (
       state: S,
-      context: AS.Context
+      context: AS.Context<F1>
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
     ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
@@ -82,7 +82,7 @@ export class EventSourcedStateful<
     readonly persistenceId: PersistenceId,
     readonly receive: (
       state: S,
-      context: AS.Context
+      context: AS.Context<F1>
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
     ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
@@ -99,7 +99,7 @@ export class EventSourcedStateful<
 
   makeActor(
     supervisor: SUP.Supervisor<R>,
-    context: AS.Context,
+    context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
   ): (

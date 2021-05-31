@@ -69,7 +69,7 @@ export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   abstract readonly messages: AM.MessageRegistry<F1>
   abstract makeActor(
     supervisor: SUP.Supervisor<R>,
-    context: AS.Context,
+    context: AS.Context<any>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize?: number
   ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<F1>>
@@ -97,7 +97,7 @@ export function stateful<S, F1 extends AM.AnyMessage>(
   return <R>(
     receive: (
       state: S,
-      context: AS.Context
+      context: AS.Context<F1>
     ) => (
       msg: StatefulEnvelope<S, F1>
     ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
@@ -114,7 +114,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
     readonly stateSchema: SCH.Standard<S>,
     readonly receive: (
       state: S,
-      context: AS.Context
+      context: AS.Context<F1>
     ) => (
       msg: StatefulEnvelope<S, F1>
     ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
@@ -126,7 +126,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
 
   makeActor(
     supervisor: SUP.Supervisor<R>,
-    context: AS.Context,
+    context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
   ): (initial: S) => T.RIO<R & HasClock, Actor<F1>> {

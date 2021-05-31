@@ -7,6 +7,7 @@ import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
+import * as AA from "../src/Address"
 import * as ESS from "../src/EventSourcedStateful"
 import * as J from "../src/Journal"
 import * as AM from "../src/Message"
@@ -131,7 +132,9 @@ describe("Actor", () => {
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
       T.tap((_) => _.system.make("actor1", SUP.none, 0, handler)),
-      T.bind("actor", (_) => _.system.select("zio://test1@0.0.0.0:0000/actor1")),
+      T.bind("actor", (_) =>
+        _.system.select(AA.address("zio://test1@0.0.0.0:0000/actor1", Message))
+      ),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get()))
     )
