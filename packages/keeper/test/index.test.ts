@@ -11,8 +11,6 @@ describe("Zookeeper", () => {
     J.runtime((TestEnv) => TestEnv[">+>"](TestKeeperConfig[">>>"](Z.LiveKeeperClient)))
   )
 
-  jest.setTimeout
-
   it("dummy", () =>
     T.gen(function* (_) {
       const client = yield* _(Z.KeeperClient)
