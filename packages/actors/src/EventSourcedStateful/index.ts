@@ -57,7 +57,7 @@ export class EventSourcedStateful<
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
     ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
-    readonly sourceEvent: (state: S, event: EV) => S
+    readonly sourceEvent: (state: S) => (event: EV) => S
   ) {
     super()
   }
@@ -65,7 +65,7 @@ export class EventSourcedStateful<
   defaultMailboxSize = 10000
 
   applyEvents(events: CH.Chunk<EV>, state: S) {
-    return CH.reduce_(events, state, this.sourceEvent)
+    return CH.reduce_(events, state, (s, e) => this.sourceEvent(s)(e))
   }
 
   makeActor(
@@ -182,7 +182,7 @@ export class EventSourcedStateful<
             T.tap((__) =>
               pipe(
                 __.persistedEvents,
-                S.mapM((ev) => REF.update_(_.state, (s) => this.sourceEvent(s, ev))),
+                S.mapM((ev) => REF.update_(_.state, (s) => this.sourceEvent(s)(ev))),
                 S.runDrain
               )
             ),

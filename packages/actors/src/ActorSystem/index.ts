@@ -276,7 +276,8 @@ function buildPath(
   return `zio://${actorSystemName}@${host}${actorPath}`
 }
 
-const regexFullPath = /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
+const regexFullPath =
+  /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
 function resolvePath(
   path: string
 ): T.Effect<unknown, InvalidActorPath, readonly [string, number, number, string]> {

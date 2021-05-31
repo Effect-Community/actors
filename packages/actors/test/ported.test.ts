@@ -3,6 +3,7 @@ import * as T from "@effect-ts/core/Effect"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import * as S from "@effect-ts/schema"
+import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
@@ -20,23 +21,19 @@ class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
 type Message = Reset | Increase | Get | GetAndReset
 
-const handler = new AC.Stateful<unknown, number, Message>((state, ctx) => (msg) => {
-  switch (msg._tag) {
-    case "Reset":
-      return msg.return(0)
-    case "Increase":
-      return msg.return(state + 1)
-    case "Get":
-      return msg.return(state, state)
-    case "GetAndReset":
-      return pipe(
-        T.do,
-        T.bind("self", () => ctx.self),
-        T.tap((_) => _.self.tell(new Reset())),
-        T.chain((_) => msg.return(state, state))
+const handler = new AC.Stateful<unknown, number, Message>((state, ctx) =>
+  matchTag({
+    Reset: (_) => _.return(0),
+    Increase: (_) => _.return(state + 1),
+    Get: (_) => _.return(state, state),
+    GetAndReset: (_) =>
+      pipe(
+        ctx.self,
+        T.chain((self) => self.tell(new Reset())),
+        T.zipRight(_.return(state, state))
       )
-  }
-})
+  })
+)
 
 class Increased {
   readonly _tag = "Increased"
@@ -48,31 +45,23 @@ type Event = Increased | Resetted
 
 const esHandler = new ESS.EventSourcedStateful<unknown, number, Message, Event>(
   new J.PersistenceId({ id: "counter" }),
-  (state, ctx) => (msg) => {
-    switch (msg._tag) {
-      case "Reset":
-        return msg.return(CH.single(new Resetted()))
-      case "Increase":
-        return msg.return(CH.single(new Increased()))
-      case "Get":
-        return msg.return(CH.empty(), (state) => state)
-      case "GetAndReset":
-        return pipe(
-          T.do,
-          T.bind("self", () => ctx.self),
-          T.tap((_) => _.self.tell(new Reset())),
-          T.chain((_) => msg.return(CH.empty(), (state) => state))
+  (state, ctx) =>
+    matchTag({
+      Reset: (_) => _.return(CH.single(new Resetted())),
+      Increase: (_) => _.return(CH.single(new Increased())),
+      Get: (_) => _.return(CH.empty(), (state) => state),
+      GetAndReset: (_) =>
+        pipe(
+          ctx.self,
+          T.chain((self) => self.tell(new Reset())),
+          T.chain(() => _.return(CH.empty(), (state) => state))
         )
-    }
-  },
-  (state, event) => {
-    switch (event._tag) {
-      case "Increased":
-        return state + 1
-      case "Resetted":
-        return 0
-    }
-  }
+    }),
+  (state) =>
+    matchTag({
+      Increased: (_) => state + 1,
+      Resetted: (_) => 0
+    })
 )
 
 describe("Actor", () => {
