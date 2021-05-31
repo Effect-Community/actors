@@ -21,7 +21,7 @@ const AppLayer = Keeper[">+>"](
 describe("Cluster", () => {
   const { it } = pipe(J.runtime((TestEnv) => TestEnv[">+>"](AppLayer)))
 
-  it("dummy", () =>
+  it("membership", () =>
     T.gen(function* (_) {
       const cluster = yield* _(Cluster)
 
