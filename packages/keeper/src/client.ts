@@ -4,6 +4,7 @@ import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import * as P from "@effect-ts/core/Effect/Promise"
 import { tag } from "@effect-ts/core/Has"
+import * as O from "@effect-ts/core/Option"
 import type { _A } from "@effect-ts/system/Utils"
 import * as Z from "node-zookeeper-client"
 
@@ -158,12 +159,12 @@ export const makeKeeperClient = M.gen(function* (_) {
   }
 
   function getData(path: string) {
-    return T.effectAsync<unknown, ZooError, Buffer>((cb) => {
+    return T.effectAsync<unknown, ZooError, O.Option<Buffer>>((cb) => {
       client.getData(path, (e, b) => {
         if (e) {
           cb(T.fail(new ZooError({ op: "GET_DATA", message: JSON.stringify(e) })))
         } else {
-          cb(T.succeed(b))
+          cb(T.succeed(O.fromNullable(b)))
         }
       })
     })

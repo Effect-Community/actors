@@ -1,5 +1,6 @@
 import * as T from "@effect-ts/core/Effect"
 import * as F from "@effect-ts/core/Effect/Fiber"
+import * as O from "@effect-ts/core/Option"
 import * as J from "@effect-ts/jest/Test"
 import { pipe } from "@effect-ts/system/Function"
 
@@ -23,9 +24,18 @@ describe("Zookeeper", () => {
       expect(yield* _(client.mkdir("/demo-2", { data: Buffer.from("yeah") }))).toEqual(
         "/demo-2"
       )
+
       expect(
         yield* _(client.create("/demo-2/ok", { data: Buffer.from("yeah yeah") }))
       ).toEqual("/demo-2/ok")
+
+      expect(
+        O.map_(yield* _(client.getData("/demo")), (_) => _.toString("utf8"))
+      ).toEqual(O.none)
+
+      expect(
+        O.map_(yield* _(client.getData("/demo-2/ok")), (_) => _.toString("utf8"))
+      ).toEqual(O.some("yeah yeah"))
 
       yield* _(client.remove("/demo/ok"))
       yield* _(client.remove("/demo"))
