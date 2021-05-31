@@ -40,19 +40,19 @@ const handler = AC.stateful(
   })
 )
 
-class Increased extends S.Schemed(
+class Increased extends S.Model<Increased>()(
   S.props({
     _tag: S.prop(S.literal("Increased"))
   })
 ) {}
 
-class Resetted extends S.Schemed(
+class Resetted extends S.Model<Resetted>()(
   S.props({
     _tag: S.prop(S.literal("Resetted"))
   })
 ) {}
 
-const Event = S.union({ Increased: S.schema(Increased), Resetted: S.schema(Resetted) })
+const Event = S.union({ Increased, Resetted })
 type Event = S.ParsedShapeOf<typeof Event>
 
 const esHandler = ESS.eventSourcedStateful(Message, S.number, Event)(
