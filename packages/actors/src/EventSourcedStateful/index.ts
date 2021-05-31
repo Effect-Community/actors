@@ -7,6 +7,7 @@ import * as REF from "@effect-ts/core/Effect/Ref"
 import { pipe } from "@effect-ts/core/Function"
 import type { Has } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
+import type * as SCH from "@effect-ts/schema"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 import type { IsEqualTo } from "@effect-ts/system/Utils"
@@ -43,6 +44,30 @@ type EventSourcedResponse<S, F1 extends AM.AnyMessage, EV> = {
   ]
 }[AM.TagsOf<F1>]
 
+export function eventSourcedStateful<F1 extends AM.AnyMessage>(
+  messages: AM.MessageRegistry<F1>
+) {
+  return <S, EV>(stateSchema: SCH.Standard<S>, eventSchema: SCH.Standard<EV>) =>
+    <R>(
+      persistenceId: PersistenceId,
+      receive: (
+        state: S,
+        context: AS.Context
+      ) => (
+        msg: EventSourcedEnvelope<S, F1, EV>
+      ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
+      sourceEvent: (state: S) => (event: EV) => S
+    ) =>
+      new EventSourcedStateful<R, S, F1, EV>(
+        messages,
+        stateSchema,
+        eventSchema,
+        persistenceId,
+        receive,
+        sourceEvent
+      )
+}
+
 export class EventSourcedStateful<
   R,
   S,
@@ -51,6 +76,8 @@ export class EventSourcedStateful<
 > extends A.AbstractStateful<R & Has<JournalFactory>, S, F1> {
   constructor(
     readonly messages: AM.MessageRegistry<F1>,
+    readonly stateSchema: SCH.Standard<S>,
+    readonly eventSchema: SCH.Standard<EV>,
     readonly persistenceId: PersistenceId,
     readonly receive: (
       state: S,

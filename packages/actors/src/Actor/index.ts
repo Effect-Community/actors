@@ -88,6 +88,19 @@ type StatefulResponse<S, F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: readonly [S, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>]
 }[AM.TagsOf<F1>]
 
+export function stateful<F1 extends AM.AnyMessage>(messages: AM.MessageRegistry<F1>) {
+  return <S>() =>
+    <R>(
+      receive: (
+        state: S,
+        context: AS.Context
+      ) => (
+        msg: StatefulEnvelope<S, F1>
+      ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
+    ) =>
+      new Stateful<R, S, F1>(messages, receive)
+}
+
 export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
   R,
   S,

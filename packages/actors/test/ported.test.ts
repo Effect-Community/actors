@@ -22,7 +22,7 @@ class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 const Message = AM.messages(Reset, Increase, Get, GetAndReset)
 type Message = AM.TypeOf<typeof Message>
 
-const handler = new AC.Stateful<unknown, number, Message>(Message, (state, ctx) =>
+const handler = AC.stateful(Message)<number>()((state, ctx) =>
   matchTag({
     Reset: (_) => _.return(0),
     Increase: (_) => _.return(state + 1),
@@ -36,21 +36,27 @@ const handler = new AC.Stateful<unknown, number, Message>(Message, (state, ctx) 
   })
 )
 
-class Increased {
-  readonly _tag = "Increased"
-}
-class Resetted {
-  readonly _tag = "Resetted"
-}
-type Event = Increased | Resetted
+class Increased extends S.Schemed(
+  S.props({
+    _tag: S.prop(S.literal("Increased"))
+  })
+) {}
 
-const esHandler = new ESS.EventSourcedStateful<unknown, number, Message, Event>(
-  Message,
+class Resetted extends S.Schemed(
+  S.props({
+    _tag: S.prop(S.literal("Resetted"))
+  })
+) {}
+
+const Event = S.union({ Increased: S.schema(Increased), Resetted: S.schema(Resetted) })
+type Event = S.ParsedShapeOf<typeof Event>
+
+const esHandler = ESS.eventSourcedStateful(Message)(S.number, Event)(
   new J.PersistenceId({ id: "counter" }),
   (state, ctx) =>
     matchTag({
-      Reset: (_) => _.return(CH.single(new Resetted())),
-      Increase: (_) => _.return(CH.single(new Increased())),
+      Reset: (_) => _.return(CH.single(new Resetted({}))),
+      Increase: (_) => _.return(CH.single(new Increased({}))),
       Get: (_) => _.return(CH.empty(), (state) => state),
       GetAndReset: (_) =>
         pipe(
