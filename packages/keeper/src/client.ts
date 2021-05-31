@@ -149,5 +149,3 @@ export const makeKeeperClient = M.gen(function* (_) {
 export interface KeeperClient extends _A<typeof makeKeeperClient> {}
 export const KeeperClient = tag<KeeperClient>()
 export const LiveKeeperClient = L.fromManaged(KeeperClient)(makeKeeperClient)
-
-export { Event } from "node-zookeeper-client"
