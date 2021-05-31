@@ -29,11 +29,15 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * Get referential absolute actor path
    * @return
    */
-  path: T.UIO<string>
+  readonly path: T.UIO<string>
   /**
    * Stops actor and all its children
    */
-  stop: T.IO<Throwable, CH.Chunk<void>>
+  readonly stop: T.IO<Throwable, CH.Chunk<void>>
+  /**
+   * Contains the Schema for the commands and responses of the ActorRef
+   */
+  readonly messages: AM.MessageRegistry<F1>
 }
 
 export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
@@ -49,6 +53,7 @@ export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     return this.actor.tell(msg)
   }
 
-  stop = this.actor.stop
-  path = T.succeed(this.actorPath)
+  readonly stop = this.actor.stop
+  readonly path = T.succeed(this.actorPath)
+  readonly messages = this.actor.messages
 }

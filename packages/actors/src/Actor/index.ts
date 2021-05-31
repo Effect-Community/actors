@@ -66,6 +66,7 @@ export class Actor<F1 extends AM.AnyMessage> {
 }
 
 export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
+  abstract readonly messages: AM.MessageRegistry<F1>
   abstract makeActor(
     supervisor: SUP.Supervisor<R>,
     context: AS.Context,
