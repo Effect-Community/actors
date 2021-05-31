@@ -2,50 +2,41 @@ import * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
+import * as S from "@effect-ts/schema"
 
 import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
-import { _Response } from "../src/common"
 import * as ESS from "../src/EventSourcedStateful"
 import * as J from "../src/Journal"
+import * as AM from "../src/Message"
 import * as SUP from "../src/Supervisor"
 
-class Reset {
-  readonly _tag = "Reset"
-}
-class Increase {
-  readonly _tag = "Increase"
-}
-class Get {
-  readonly _tag = "Get";
-  readonly [_Response]: () => number
-}
-class GetAndReset {
-  readonly _tag = "GetAndReset";
-  readonly [_Response]: () => number
-}
+const unit = S.unknown["|>"](S.brand<void>())
+
+class Reset extends AM.Message("Reset", S.props({}), unit) {}
+class Increase extends AM.Message("Increase", S.props({}), unit) {}
+class Get extends AM.Message("Get", S.props({}), S.number) {}
+class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
 type Message = Reset | Increase | Get | GetAndReset
 
-const handler = new AC.Stateful<unknown, number, Message>(
-  (state, msg, ctx, replyTo) => {
-    switch (msg._tag) {
-      case "Reset":
-        return T.succeed(replyTo(msg)(0))
-      case "Increase":
-        return T.succeed(replyTo(msg)(state + 1))
-      case "Get":
-        return T.succeed(replyTo(msg)(state, state))
-      case "GetAndReset":
-        return pipe(
-          T.do,
-          T.bind("self", () => ctx.self),
-          T.tap((_) => _.self.tell(new Reset())),
-          T.map((_) => replyTo(msg)(state, state))
-        )
-    }
+const handler = new AC.Stateful<unknown, number, Message>((state, ctx) => (msg) => {
+  switch (msg._tag) {
+    case "Reset":
+      return msg.return(0)
+    case "Increase":
+      return msg.return(state + 1)
+    case "Get":
+      return msg.return(state, state)
+    case "GetAndReset":
+      return pipe(
+        T.do,
+        T.bind("self", () => ctx.self),
+        T.tap((_) => _.self.tell(new Reset())),
+        T.chain((_) => msg.return(state, state))
+      )
   }
-)
+})
 
 class Increased {
   readonly _tag = "Increased"
@@ -57,20 +48,20 @@ type Event = Increased | Resetted
 
 const esHandler = new ESS.EventSourcedStateful<unknown, number, Message, Event>(
   new J.PersistenceId({ id: "counter" }),
-  (state, msg, ctx, replyTo) => {
+  (state, ctx) => (msg) => {
     switch (msg._tag) {
       case "Reset":
-        return T.succeed(replyTo(msg)(CH.single(new Resetted())))
+        return msg.return(CH.single(new Resetted()))
       case "Increase":
-        return T.succeed(replyTo(msg)(CH.single(new Increased())))
+        return msg.return(CH.single(new Increased()))
       case "Get":
-        return T.succeed(replyTo(msg)(CH.empty(), (state) => state))
+        return msg.return(CH.empty(), (state) => state)
       case "GetAndReset":
         return pipe(
           T.do,
           T.bind("self", () => ctx.self),
           T.tap((_) => _.self.tell(new Reset())),
-          T.map((_) => replyTo(msg)(CH.empty(), (state) => state))
+          T.chain((_) => msg.return(CH.empty(), (state) => state))
         )
     }
   },

@@ -16,6 +16,7 @@ import {
   NoRemoteSupportException,
   NoSuchActorException
 } from "../common"
+import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
 /**
@@ -44,7 +45,7 @@ export class Context {
    * @tparam F1 - DSL type
    * @return reference to the created actor in effect that can't fail
    */
-  make<R, S, F1>(
+  make<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
     sup: SUP.Supervisor<R>,
     init: S,
@@ -73,11 +74,11 @@ export class Context {
    * @tparam F1 - actor's DSL type
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
-  select<F1>(path: string) {
+  select<F1 extends AM.AnyMessage>(path: string) {
     return this.actorSystem.select<F1>(path)
   }
 
-  lookup<F1>(path: string) {
+  lookup<F1 extends AM.AnyMessage>(path: string) {
     return this.actorSystem.lookup<F1>(path)
   }
 }
@@ -104,7 +105,7 @@ export class ActorSystem {
    * @tparam F - DSL type
    * @return reference to the created actor in effect that can't fail
    */
-  make<R, S, F1>(
+  make<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
     sup: SUP.Supervisor<R>,
     init: S,
@@ -162,7 +163,7 @@ export class ActorSystem {
     )
   }
 
-  selectOrMake<R, S, F1>(
+  selectOrMake<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
     sup: SUP.Supervisor<R>,
     init: S,
@@ -214,7 +215,7 @@ export class ActorSystem {
    * @tparam F - actor's DSL type
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
-  select<F1>(
+  select<F1 extends AM.AnyMessage>(
     path: string
   ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, AR.ActorRef<F1>> {
     return pipe(
@@ -223,7 +224,7 @@ export class ActorSystem {
     )
   }
 
-  lookup<F1>(
+  lookup<F1 extends AM.AnyMessage>(
     path: string
   ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
     return pipe(
@@ -275,8 +276,7 @@ function buildPath(
   return `zio://${actorSystemName}@${host}${actorPath}`
 }
 
-const regexFullPath =
-  /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
+const regexFullPath = /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
 function resolvePath(
   path: string
 ): T.Effect<unknown, InvalidActorPath, readonly [string, number, number, string]> {

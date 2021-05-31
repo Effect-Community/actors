@@ -2,9 +2,10 @@ import type * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 
 import type * as A from "../Actor"
-import type { _ResponseOf, Throwable } from "../common"
+import type { Throwable } from "../common"
+import type * as AM from "../Message"
 
-export interface ActorRef<F1> {
+export interface ActorRef<F1 extends AM.AnyMessage> {
   /**
    * Send a message to an actor as `ask` interaction pattern -
    * caller is blocked until the response is received
@@ -13,7 +14,7 @@ export interface ActorRef<F1> {
    * @tparam A return type
    * @return effectful response
    */
-  ask<A extends F1>(msg: A): T.IO<Throwable, _ResponseOf<A>>
+  ask<A extends F1>(msg: A): T.IO<Throwable, AM.ResponseOf<A>>
 
   /**
    * Send message to an actor as `fire-and-forget` -
@@ -35,7 +36,7 @@ export interface ActorRef<F1> {
   stop: T.IO<Throwable, CH.Chunk<void>>
 }
 
-export class ActorRefLocal<F1> implements ActorRef<F1> {
+export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   constructor(
     private readonly actorPath: string,
     private readonly actor: A.Actor<F1>

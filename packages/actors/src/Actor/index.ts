@@ -8,13 +8,17 @@ import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 
 import type * as AS from "../ActorSystem"
-import type { _Response, _ResponseOf, Throwable } from "../common"
+import type { Throwable } from "../common"
 import type * as EV from "../Envelope"
+import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
-export type PendingMessage<A> = readonly [A, P.Promise<Throwable, _ResponseOf<A>>]
+export type PendingMessage<A extends AM.AnyMessage> = readonly [
+  A,
+  P.Promise<Throwable, AM.ResponseOf<A>>
+]
 
-export class Actor<F1> {
+export class Actor<F1 extends AM.AnyMessage> {
   constructor(
     readonly queue: Q.Queue<PendingMessage<F1>>,
     readonly optOutActorSystem: () => T.Effect<unknown, Throwable, void>
@@ -33,7 +37,7 @@ export class Actor<F1> {
 
   ask<A extends F1>(fa: A) {
     return pipe(
-      P.make<Throwable, _ResponseOf<A>>(),
+      P.make<Throwable, AM.ResponseOf<A>>(),
       T.tap((promise) => Q.offer_(this.queue, tuple(fa, promise))),
       T.chain(P.await)
     )
@@ -59,30 +63,42 @@ export class Actor<F1> {
   )
 }
 
-export abstract class AbstractStateful<R, S, A> {
+export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   abstract makeActor(
     supervisor: SUP.Supervisor<R>,
     context: AS.Context,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize?: number
-  ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<A>>
+  ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<F1>>
 }
 
-export interface StatefulReply<S, F1> {
-  <A extends F1>(msg: A): (
-    state: S,
-    response: _ResponseOf<A>
-  ) => readonly [S, _ResponseOf<A>]
-}
+type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {
+  [Tag in AM.TagsOf<F1>]: {
+    _tag: Tag
+    payload: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
+    return: (
+      s: S,
+      r: AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
+    ) => T.Effect<unknown, never, StatefulResponse<S, AM.ExtractTagged<F1, Tag>>>
+  }
+}[AM.TagsOf<F1>]
 
-export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
+type StatefulResponse<S, F1 extends AM.AnyMessage> = {
+  [Tag in AM.TagsOf<F1>]: readonly [S, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>]
+}[AM.TagsOf<F1>]
+
+export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
+  R,
+  S,
+  F1
+> {
   constructor(
     readonly receive: (
       state: S,
-      msg: F1,
-      context: AS.Context,
-      handleMsg: StatefulReply<S, F1>
-    ) => T.Effect<R, Throwable, readonly [S, _ResponseOf<F1>]>
+      context: AS.Context
+    ) => (
+      msg: StatefulEnvelope<S, F1>
+    ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
   ) {
     super()
   }
@@ -105,12 +121,19 @@ export class Stateful<R, S, F1> extends AbstractStateful<R, S, F1> {
         T.let("fa", () => msg[0]),
         T.let("promise", () => msg[1]),
         T.let("receiver", (_) =>
-          this.receive(_.s, _.fa, context, () => (s, r) => tuple(s, r))
+          this.receive(
+            _.s,
+            context
+          )({
+            _tag: _.fa._tag,
+            payload: _.fa,
+            return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
+          } as any)
         ),
         T.let(
           "completer",
           (_) =>
-            ([s, a]: readonly [S, _ResponseOf<F1>]) =>
+            ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
               pipe(
                 REF.set_(state, s),
                 T.zipRight(P.succeed_(_.promise, a)),

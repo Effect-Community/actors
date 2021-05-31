@@ -9,34 +9,54 @@ import type { Has } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
+import type { IsEqualTo } from "@effect-ts/system/Utils"
 
 import * as A from "../Actor"
 import type * as AS from "../ActorSystem"
-import type { _Response, _ResponseOf, Throwable } from "../common"
+import type { Throwable } from "../common"
 import type { Journal, PersistenceId } from "../Journal"
 import { JournalFactory } from "../Journal"
+import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
-interface EventSourcedStatefulReply<S, EV, F1> {
-  <A extends F1>(msg: A): (
-    events: CH.Chunk<EV>,
-    reply: [_ResponseOf<A>] extends [void] ? void : (state: S) => _ResponseOf<A>
-  ) => readonly [CH.Chunk<EV>, (s: S) => _ResponseOf<A>]
-}
+type EventSourcedEnvelope<S, F1 extends AM.AnyMessage, EV> = {
+  [Tag in AM.TagsOf<F1>]: {
+    _tag: Tag
+    payload: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
+    return: (
+      ev: CH.Chunk<EV>,
+      r: IsEqualTo<AM.ResponseOf<AM.ExtractTagged<F1, Tag>>, void> extends true
+        ? void
+        : (state: S) => AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
+    ) => T.Effect<
+      unknown,
+      never,
+      EventSourcedResponse<S, AM.ExtractTagged<F1, Tag>, EV>
+    >
+  }
+}[AM.TagsOf<F1>]
 
-export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<
-  R & Has<JournalFactory>,
+type EventSourcedResponse<S, F1 extends AM.AnyMessage, EV> = {
+  [Tag in AM.TagsOf<F1>]: readonly [
+    CH.Chunk<EV>,
+    (state: S) => AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
+  ]
+}[AM.TagsOf<F1>]
+
+export class EventSourcedStateful<
+  R,
   S,
-  F1
-> {
+  F1 extends AM.AnyMessage,
+  EV
+> extends A.AbstractStateful<R & Has<JournalFactory>, S, F1> {
   constructor(
     readonly persistenceId: PersistenceId,
     readonly receive: (
       state: S,
-      msg: F1,
-      context: AS.Context,
-      replyTo: EventSourcedStatefulReply<S, EV, F1>
-    ) => T.Effect<R, Throwable, readonly [CH.Chunk<EV>, (s: S) => _ResponseOf<F1>]>,
+      context: AS.Context
+    ) => (
+      msg: EventSourcedEnvelope<S, F1, EV>
+    ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
     readonly sourceEvent: (state: S, event: EV) => S
   ) {
     super()
@@ -67,36 +87,53 @@ export class EventSourcedStateful<R, S, F1, EV> extends A.AbstractStateful<
         T.let("fa", () => msg[0]),
         T.let("promise", () => msg[1]),
         T.let("receiver", (_) =>
-          this.receive(_.s, _.fa, context, () => (s, r) =>
-            tuple(s, r ? r : () => undefined) as any
-          )
+          this.receive(
+            _.s,
+            context
+          )({
+            _tag: _.fa._tag,
+            payload: _.fa,
+            return: (
+              ev: CH.Chunk<EV>,
+              r: (s: S) => AM.ResponseOf<F1> = (_) => undefined as any
+            ) => T.succeed(tuple(ev, r))
+          } as any)
         ),
-        T.let("effectfulCompleter", (_) => (s: S, a: _ResponseOf<F1>) =>
-          pipe(
-            REF.set_(state, s),
-            T.chain(() => P.succeed_(_.promise, a)),
-            T.zipRight(T.unit)
-          )
+        T.let(
+          "effectfulCompleter",
+          (_) => (s: S, a: AM.ResponseOf<F1>) =>
+            pipe(
+              REF.set_(state, s),
+              T.chain(() => P.succeed_(_.promise, a)),
+              T.zipRight(T.unit)
+            )
         ),
-        T.let("idempotentCompleter", (_) => (a: _ResponseOf<F1>) =>
-          pipe(P.succeed_(_.promise, a), T.zipRight(T.unit))
+        T.let(
+          "idempotentCompleter",
+          (_) => (a: AM.ResponseOf<F1>) =>
+            pipe(P.succeed_(_.promise, a), T.zipRight(T.unit))
         ),
         T.let(
           "fullCompleter",
-          (_) => ([ev, sa]: readonly [CH.Chunk<EV>, (s: S) => _ResponseOf<F1>]) =>
-            CH.size(ev) === 0
-              ? _.idempotentCompleter(sa(_.s))
-              : pipe(
-                  T.do,
-                  T.let("updatedState", () => this.applyEvents(ev, _.s)),
-                  T.tap((_) =>
-                    journal.persistEntry(this.persistenceId, ev, O.some(_.updatedState))
-                  ),
-                  T.chain((s) =>
-                    _.effectfulCompleter(s.updatedState, sa(s.updatedState))
-                  ),
-                  T.zipRight(T.unit)
-                )
+          (_) =>
+            ([ev, sa]: readonly [CH.Chunk<EV>, (s: S) => AM.ResponseOf<F1>]) =>
+              CH.size(ev) === 0
+                ? _.idempotentCompleter(sa(_.s))
+                : pipe(
+                    T.do,
+                    T.let("updatedState", () => this.applyEvents(ev, _.s)),
+                    T.tap((_) =>
+                      journal.persistEntry(
+                        this.persistenceId,
+                        ev,
+                        O.some(_.updatedState)
+                      )
+                    ),
+                    T.chain((s) =>
+                      _.effectfulCompleter(s.updatedState, sa(s.updatedState))
+                    ),
+                    T.zipRight(T.unit)
+                  )
         ),
         T.chain((_) =>
           T.foldM_(
