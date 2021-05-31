@@ -118,7 +118,6 @@ export const makeCluster = M.gen(function* (_) {
   const leader = pipe(
     cli.getChildren(membersDir),
     T.map(Chunk.head),
-    EO.map((s) => `${membersDir}/${s}`),
     EO.chainT((path) => getMemberHostPort(path))
   )
 
