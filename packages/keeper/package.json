@@ -1,10 +1,10 @@
 {
-  "name": "@effect-ts/actors",
-  "version": "0.16.0",
+  "name": "@effect-ts/keeper",
+  "version": "0.0.0",
   "license": "MIT",
   "repository": "https://github.com/Effect-TS/actors.git",
   "homepage": "https://www.matechs.com",
-  "private": true,
+  "private": false,
   "scripts": {
     "clean": "rimraf build tsbuildinfo",
     "build:lib": "ttsc --build  tsconfig.build.json && build-utils package",
@@ -24,13 +24,7 @@
   },
   "sideEffects": false,
   "config": {
-    "modules": [
-      "Actor",
-      "ActorRef",
-      "ActorSystem",
-      "EventSourcedStateful",
-      "Supervisor"
-    ]
+    "modules": []
   },
   "peerDependencies": {
     "@effect-ts/core": "^0.40.0"
