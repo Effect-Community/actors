@@ -153,7 +153,9 @@ export class EventSourcedStateful<
                     T.tap((_) =>
                       journal.persistEntry(
                         this.persistenceId,
+                        this.eventSchema,
                         ev,
+                        this.stateSchema,
                         O.some(_.updatedState)
                       )
                     ),
@@ -197,7 +199,9 @@ export class EventSourcedStateful<
             // so that the mailbox can start receiving messages an be queued up
             // until the actor can start rehydrating.
             T.do,
-            T.bind("journalEntry", () => _.journal.getEntry(this.persistenceId)),
+            T.bind("journalEntry", () =>
+              _.journal.getEntry(this.persistenceId, this.eventSchema, this.stateSchema)
+            ),
             T.let("persistedState", (_) => _.journalEntry[0]),
             T.let("persistedEvents", (_) => _.journalEntry[1]),
             T.tap((__) =>

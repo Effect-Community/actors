@@ -7,6 +7,7 @@ import * as REF from "@effect-ts/core/Effect/Ref"
 import { pipe, tuple } from "@effect-ts/core/Function"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
+import type * as SCH from "@effect-ts/schema"
 
 import type { Throwable } from "../common"
 
@@ -15,11 +16,15 @@ export class PersistenceId extends C.Case<{ id: string }> {}
 export interface Journal<S, EV> {
   persistEntry(
     persistenceId: PersistenceId,
+    eventSchema: SCH.Standard<EV>,
     events: CH.Chunk<EV>,
+    stateSchema: SCH.Standard<S>,
     state: O.Option<S>
   ): T.Effect<unknown, Throwable, void>
   getEntry(
-    persistenceId: PersistenceId
+    persistenceId: PersistenceId,
+    eventSchema: SCH.Standard<EV>,
+    stateSchema: SCH.Standard<S>
   ): T.Effect<
     unknown,
     Throwable,
@@ -41,7 +46,9 @@ export class InMemJournal<S, EV> implements Journal<S, EV> {
 
   persistEntry(
     persistenceId: PersistenceId,
+    eventSchema: SCH.Standard<EV>,
     events: CH.Chunk<EV>,
+    stateSchema: SCH.Standard<S>,
     state: O.Option<S>
   ): T.Effect<unknown, Throwable, void> {
     return pipe(
@@ -61,7 +68,9 @@ export class InMemJournal<S, EV> implements Journal<S, EV> {
   }
 
   getEntry(
-    persistenceId: PersistenceId
+    persistenceId: PersistenceId,
+    eventSchema: SCH.Standard<EV>,
+    stateSchema: SCH.Standard<S>
   ): T.Effect<
     unknown,
     Throwable,
