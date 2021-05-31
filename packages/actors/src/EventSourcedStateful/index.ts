@@ -50,6 +50,7 @@ export class EventSourcedStateful<
   EV
 > extends A.AbstractStateful<R & Has<JournalFactory>, S, F1> {
   constructor(
+    readonly messages: AM.MessageRegistry<F1>,
     readonly persistenceId: PersistenceId,
     readonly receive: (
       state: S,
@@ -196,7 +197,7 @@ export class EventSourcedStateful<
             T.fork
           )
         ),
-        T.map((_) => new A.Actor(_.queue, optOutActorSystem))
+        T.map((_) => new A.Actor(this.messages, _.queue, optOutActorSystem))
       )
   }
 }

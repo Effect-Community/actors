@@ -20,6 +20,7 @@ export type PendingMessage<A extends AM.AnyMessage> = readonly [
 
 export class Actor<F1 extends AM.AnyMessage> {
   constructor(
+    readonly messages: AM.MessageRegistry<F1>,
     readonly queue: Q.Queue<PendingMessage<F1>>,
     readonly optOutActorSystem: () => T.Effect<unknown, Throwable, void>
   ) {}
@@ -93,6 +94,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
   F1
 > {
   constructor(
+    readonly messages: AM.MessageRegistry<F1>,
     readonly receive: (
       state: S,
       context: AS.Context
@@ -167,7 +169,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
             T.fork
           )
         ),
-        T.map((_) => new Actor(_.queue, optOutActorSystem))
+        T.map((_) => new Actor(this.messages, _.queue, optOutActorSystem))
       )
   }
 }

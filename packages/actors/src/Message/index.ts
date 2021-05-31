@@ -39,6 +39,17 @@ export type ExtractTagged<A extends AnyMessage, Tag extends string> = Extract<
   TypedMessage<Tag, any, any>
 >
 
+type MessageFactoryOf<A extends AnyMessage> = [A] extends [
+  Message<infer Tag, infer Req, infer Res>
+]
+  ? MessageFactory<Tag, Req, Res>
+  : never
+
+export interface MessageRegistry<F1>
+  extends Record<string, [F1] extends [AnyMessage] ? MessageFactoryOf<F1> : never> {}
+
+export type InstanceOf<A> = [A] extends [{ new (...any: any[]): infer B }] ? B : never
+
 interface MessageFactory<
   Tag extends string,
   Req extends S.SchemaUPI,
@@ -52,6 +63,13 @@ interface MessageFactory<
     _: IsEqualTo<S.ParsedShapeOf<Req>, {}> extends true ? void : S.ParsedShapeOf<Req>
   ): TypedMessage<Tag, Req, Res>
 }
+export type AnyMessageFactory = MessageFactory<any, S.SchemaAny, S.SchemaAny>
+
+export type TypeOf<A extends MessageRegistry<any>> = [A] extends [
+  MessageRegistry<infer B>
+]
+  ? B
+  : never
 
 export function Message<
   Tag extends string,
@@ -77,4 +95,13 @@ export function Message<
       }
     }
   }
+}
+
+export function messages<Messages extends AnyMessageFactory[]>(
+  ...messages: Messages
+): MessageRegistry<InstanceOf<Messages[number]>> {
+  return messages.reduce(
+    (obj, entry) => ({ ...obj, [entry.Tag]: entry }),
+    {} as MessageRegistry<any>
+  )
 }

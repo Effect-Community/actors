@@ -19,9 +19,10 @@ class Increase extends AM.Message("Increase", S.props({}), unit) {}
 class Get extends AM.Message("Get", S.props({}), S.number) {}
 class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
-type Message = Reset | Increase | Get | GetAndReset
+const Message = AM.messages(Reset, Increase, Get, GetAndReset)
+type Message = AM.TypeOf<typeof Message>
 
-const handler = new AC.Stateful<unknown, number, Message>((state, ctx) =>
+const handler = new AC.Stateful<unknown, number, Message>(Message, (state, ctx) =>
   matchTag({
     Reset: (_) => _.return(0),
     Increase: (_) => _.return(state + 1),
@@ -44,6 +45,7 @@ class Resetted {
 type Event = Increased | Resetted
 
 const esHandler = new ESS.EventSourcedStateful<unknown, number, Message, Event>(
+  Message,
   new J.PersistenceId({ id: "counter" }),
   (state, ctx) =>
     matchTag({
