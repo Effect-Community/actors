@@ -1,5 +1,7 @@
 import * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
+import * as REF from "@effect-ts/core/Effect/Ref"
+import * as SE from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import * as S from "@effect-ts/schema"
@@ -161,5 +163,39 @@ describe("Actor", () => {
     const result = await T.runPromise(program)
     expect(result.c1).toEqual(2)
     expect(result.c2).toEqual(result.c1)
+  })
+
+  it("error recovery by retrying", async () => {
+    class Tick extends AM.Message("Tick", S.props({}), unit) {}
+    const TickMessage = AM.messages(Tick)
+
+    const tickHandler = (ref: REF.Ref<number>) =>
+      AC.stateful(
+        TickMessage,
+        S.number
+      )((_, ctx) =>
+        matchTag({
+          Tick: (_) =>
+            pipe(
+              REF.updateAndGet_(ref, (s) => s + 1),
+              T.chain((s) => (s < 10 ? T.fail("fail") : _.return(0)))
+            )
+        })
+      )
+
+    const program = pipe(
+      T.do,
+      T.bind("ref", (_) => REF.makeRef(0)),
+      T.let("handler", (_) => tickHandler(_.ref)),
+      T.let("schedule", (_) => SE.recurs(10)),
+      T.let("policy", (_) => SUP.retry(_.schedule)),
+      T.bind("system", () => AS.make("test2", O.none)),
+      T.bind("actor", (_) => _.system.make("actor1", _.policy, 0, tickHandler(_.ref))),
+      T.tap((_) => _.actor.ask(new Tick())),
+      T.bind("c1", (_) => REF.get(_.ref))
+    )
+
+    const result = await T.runPromise(program)
+    expect(result.c1).toEqual(10)
   })
 })
