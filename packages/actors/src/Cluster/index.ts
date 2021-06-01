@@ -40,7 +40,7 @@ export function makeClusterConfig(_: { host: string; port: number }): ClusterCon
   }
 }
 
-export function LiveClusterConfig(cfg: ConfigInput) {
+export function StaticClusterConfig(cfg: ConfigInput) {
   return L.fromEffect(ClusterConfig)(T.succeedWith(() => makeClusterConfig(cfg)))
 }
 
