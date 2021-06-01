@@ -10,14 +10,14 @@ import { LiveActorSystem } from "../src/ActorSystem"
 import { Cluster, DefaultCluster, HostPort } from "../src/Cluster"
 import { TestKeeperConfig } from "./zookeeper"
 
-const AppLayer = LiveActorSystem("@effect-ts/actors/cluster/demo")
-  ["+++"](TestKeeperConfig[">>>"](Z.LiveKeeperClient))
-  [">+>"](
+const AppLayer = LiveActorSystem("@effect-ts/actors/cluster/demo")[">+>"](
+  TestKeeperConfig[">>>"](Z.LiveKeeperClient)[">+>"](
     DefaultCluster({
       host: "127.0.0.1",
       port: 34322
     })
   )
+)
 
 describe("Cluster", () => {
   const { it } = pipe(J.runtime((TestEnv) => TestEnv[">+>"](AppLayer)))
