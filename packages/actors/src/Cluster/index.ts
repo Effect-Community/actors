@@ -3,6 +3,7 @@ import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
+import * as Sh from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
 import type { Has, Tag } from "@effect-ts/core/Has"
 import { tag } from "@effect-ts/core/Has"
@@ -10,8 +11,10 @@ import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
+import type { ZooError } from "@effect-ts/keeper"
 import * as K from "@effect-ts/keeper"
 import { KeeperClient } from "@effect-ts/keeper"
+import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
 
 import type * as A from "../Actor"
 import { ActorSystemTag } from "../ActorSystem"
@@ -112,7 +115,42 @@ export const makeCluster = M.gen(function* (_) {
     EO.chainT(memberHostPort)
   )
 
-  const leaderId = (base: string) => pipe(cli.getChildren(base), T.map(Chunk.head))
+  const leaderId = (scope: string) => pipe(cli.getChildren(scope), T.map(Chunk.head))
+
+  function runOnLeader(scope: string) {
+    return <R, E>(effect: T.Effect<R, E, never>) => {
+      return T.gen(function* (_) {
+        const leader = yield* _(
+          pipe(
+            leaderId(scope),
+            T.chain(T.getOrFail),
+            T.retry(
+              pipe(
+                Sh.windowed(100),
+                Sh.whileInput(
+                  (u: ZooError | NoSuchElementException) =>
+                    u._tag === "NoSuchElementException"
+                )
+              )
+            ),
+            T.catch("_tag", "NoSuchElementException", () =>
+              T.die(
+                new ClusterException({ message: `cannot find a leader for ${scope}` })
+              )
+            )
+          )
+        )
+
+        while (1) {
+          if (leader === nodeId) {
+            yield* _(effect)
+          } else {
+            yield* _(cli.waitDelete(`${scope}/${leader}`))
+          }
+        }
+      })
+    }
+  }
 
   return {
     [ClusterSym]: ClusterSym,
@@ -121,7 +159,8 @@ export const makeCluster = M.gen(function* (_) {
     leader,
     clusterDir,
     memberHostPort,
-    leaderId
+    leaderId,
+    runOnLeader
   } as const
 })
 
@@ -133,6 +172,7 @@ export interface Singleton<ID extends string> {
   id: ID
   members: T.Effect<unknown, K.ZooError, Chunk.Chunk<string>>
   leader: T.Effect<unknown, K.ZooError, O.Option<string>>
+  membersDir: string
 }
 
 export const makeSingleton =
@@ -173,7 +213,8 @@ export const makeSingleton =
           return {
             id,
             members,
-            leader
+            leader,
+            membersDir
           }
         })
       )

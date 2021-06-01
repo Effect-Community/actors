@@ -4,6 +4,7 @@ import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
+import { AtomicNumber } from "@effect-ts/core/Support/AtomicNumber"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
@@ -117,9 +118,28 @@ describe("Cluster", () => {
 
       const processA = yield* _(ProcessA.Tag)
       const leader = yield* _(yield* _(processA.leader))
+      const count = new AtomicNumber(0)
 
       expect(leader).equals("member_0000000000")
 
+      yield* _(
+        pipe(
+          cluster.runOnLeader(processA.membersDir)(
+            pipe(
+              T.succeedWith(() => {
+                count.incrementAndGet()
+              }),
+              T.delay(100),
+              T.forever
+            )
+          ),
+          T.forkManaged
+        )
+      )
+
+      yield* _(J.adjust(500))
+
+      expect(count.get).equals(5)
       expect(yield* _(cluster.memberHostPort(leader))).equals(
         new Cluster.HostPort({ host: "127.0.0.1", port: 34322 })
       )
