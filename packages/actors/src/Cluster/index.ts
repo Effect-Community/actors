@@ -119,7 +119,3 @@ export const makeCluster = M.gen(function* (_) {
 export interface Cluster extends _A<typeof makeCluster> {}
 export const Cluster = tag<Cluster>()
 export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
-
-export function DefaultCluster(cfg: ConfigInput) {
-  return LiveClusterConfig(cfg)[">+>"](LiveCluster)
-}
