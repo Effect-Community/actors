@@ -193,6 +193,7 @@ export const makeSingleton =
       Tag: tag_,
       ask: <A extends F1>(fa: A) => T.accessServiceM(tag_)((_) => _.actor.ask(fa)),
       tell: <A extends F1>(fa: A) => T.accessServiceM(tag_)((_) => _.actor.tell(fa)),
+      actor: T.accessService(tag_)((_) => _.actor),
       Live: L.fromManaged(tag_)(
         M.gen(function* (_) {
           const cluster = yield* _(Cluster)
