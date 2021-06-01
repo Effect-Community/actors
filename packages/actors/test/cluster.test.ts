@@ -103,7 +103,7 @@ describe("Cluster", () => {
       const cluster = yield* _(Cluster.Cluster)
 
       expect(yield* _(cluster.members)).equals(
-        Chunk.from([new Cluster.HostPort({ host: "127.0.0.1", port: 34322 })])
+        Chunk.single(new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }))
       )
 
       expect(yield* _(cluster.leader)).equals(
