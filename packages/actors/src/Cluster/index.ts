@@ -184,11 +184,11 @@ export const makeCluster = M.gen(function* (_) {
                   )
                 )
                 ["|>"](
-                  T.catchAll((s) => {
-                    return T.succeedWith(() =>
+                  T.catchAll((s) =>
+                    T.succeedWith(() =>
                       res.status(500).send({ message: `invalid actor path: ${s.path}` })
                     )
-                  })
+                  )
                 )
             )
           )
