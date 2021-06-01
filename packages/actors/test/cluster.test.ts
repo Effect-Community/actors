@@ -1,7 +1,6 @@
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
-import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import * as J from "@effect-ts/jest/Test"
@@ -112,11 +111,11 @@ describe("Cluster", () => {
     }))
 
   it("singleton", () =>
-    M.gen(function* (_) {
+    T.gen(function* (_) {
       expect(yield* _(ProcessA.ask(new Get()))).equals(0)
 
       yield* _(ProcessA.ask(new Increase()))
 
       expect(yield* _(ProcessA.ask(new Get()))).equals(1)
-    })["|>"](M.useNow))
+    }))
 })
