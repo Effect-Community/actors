@@ -1,6 +1,5 @@
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
-import * as L from "@effect-ts/core/Effect/Layer"
 import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import * as J from "@effect-ts/jest/Test"
@@ -9,19 +8,18 @@ import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
-import { LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
+import * as ClusterConfigSym from "../src/ClusterConfig"
 import * as AM from "../src/Message"
 import { TestKeeperConfig } from "./zookeeper"
 
-const AppLayer = LiveActorSystem("@effect-ts/actors/cluster/demo")[">+>"](
-  Z.LiveKeeperClient["<<<"](TestKeeperConfig)[">+>"](
-    Cluster.LiveCluster["<<<"](
-      Cluster.StaticClusterConfig({
-        host: "127.0.0.1",
-        port: 34322
-      })
-    )
+const AppLayer = Z.LiveKeeperClient["<<<"](TestKeeperConfig)[">+>"](
+  Cluster.LiveCluster["<<<"](
+    ClusterConfigSym.StaticClusterConfig({
+      sysName: "effect-ts-demo-system",
+      host: "127.0.0.1",
+      port: 34322
+    })
   )
 )
 
@@ -72,46 +70,14 @@ describe("Cluster", () => {
       )
     }))
 
-  it("second", () =>
-    T.gen(function* (_) {
-      const cluster = yield* _(Cluster.Cluster)
-
-      expect(yield* _(cluster.members)).equals(
-        Chunk.from([
-          new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }),
-          new Cluster.HostPort({ host: "127.0.0.2", port: 34322 })
-        ])
-      )
-
-      expect(yield* _(cluster.leader)).equals(
-        O.some(new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }))
-      )
-    })["|>"](
-      L.fresh(
-        Cluster.LiveCluster["<<<"](
-          Cluster.StaticClusterConfig({
-            host: "127.0.0.2",
-            port: 34322
-          })
-        )
-      ).use
-    ))
-
-  it("dropped", () =>
-    T.gen(function* (_) {
-      const cluster = yield* _(Cluster.Cluster)
-
-      expect(yield* _(cluster.members)).equals(
-        Chunk.single(new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }))
-      )
-
-      expect(yield* _(cluster.leader)).equals(
-        O.some(new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }))
-      )
-    }))
-
   it("singleton", () =>
     T.gen(function* (_) {
+      const actor = yield* _(ProcessA.actor)
+
+      expect((yield* _(actor.path)).path).equals(
+        "zio://effect-ts-demo-system@127.0.0.1:34322/singleton/process-a"
+      )
+
       expect(yield* _(ProcessA.ask(new Get()))).equals(0)
 
       yield* _(ProcessA.ask(new Increase()))

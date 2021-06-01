@@ -24,11 +24,10 @@ import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
 import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
+import { ClusterConfig } from "../ClusterConfig"
 import type { Throwable } from "../common"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
-
-export const ClusterConfigSym = Symbol()
 
 const EO = pipe(OT.monad(T.Monad), (M) => ({
   map: M.map,
@@ -38,28 +37,6 @@ const EO = pipe(OT.monad(T.Monad), (M) => ({
     <R, E>(fa: T.Effect<R, E, O.Option<A>>): T.Effect<R2 & R, E2 | E, O.Option<B>> =>
       chainF(M)((a: A) => T.map_(f(a), O.some))(fa)
 }))
-
-export interface ConfigInput {
-  readonly host: string
-  readonly port: number
-}
-
-export interface ClusterConfig extends ConfigInput {
-  readonly [ClusterConfigSym]: typeof ClusterConfigSym
-}
-
-export function makeClusterConfig(_: { host: string; port: number }): ClusterConfig {
-  return {
-    [ClusterConfigSym]: ClusterConfigSym,
-    ..._
-  }
-}
-
-export function StaticClusterConfig(cfg: ConfigInput) {
-  return L.fromEffect(ClusterConfig)(T.succeedWith(() => makeClusterConfig(cfg)))
-}
-
-export const ClusterConfig = tag<ClusterConfig>()
 
 export const ClusterSym = Symbol()
 
@@ -73,9 +50,9 @@ export class ClusterException extends Tagged("ClusterException")<{
 }> {}
 
 export const makeCluster = M.gen(function* (_) {
-  const { host, port } = yield* _(ClusterConfig)
+  const { host, port, sysName } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
-  const system = yield* _(AS.ActorSystemTag)
+  const system = yield* _(AS.make(sysName, O.none, O.some({ host, port })))
   const clusterDir = `/cluster/${system.actorSystemName}`
   const membersDir = `${clusterDir}/members`
 
@@ -171,13 +148,16 @@ export const makeCluster = M.gen(function* (_) {
     clusterDir,
     memberHostPort,
     leaderId,
-    runOnLeader
+    runOnLeader,
+    system
   } as const
 })
 
 export interface Cluster extends _A<typeof makeCluster> {}
 export const Cluster = tag<Cluster>()
-export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
+export const LiveCluster = L.fromManaged(Cluster)(makeCluster)[">+>"](
+  L.fromEffect(AS.ActorSystemTag)(T.accessService(Cluster)((_) => _.system))
+)
 
 export interface Singleton<ID extends string, F1 extends AM.AnyMessage> {
   id: ID

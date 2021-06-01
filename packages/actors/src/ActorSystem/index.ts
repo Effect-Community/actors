@@ -88,7 +88,10 @@ export class Context<FC extends AM.AnyMessage> {
   }
 }
 
-type RemoteConfig = {}
+export type RemoteConfig = {
+  host: string
+  port: number
+}
 
 export class ActorSystem {
   constructor(
@@ -307,8 +310,7 @@ function buildPath(
 ): string {
   const host = pipe(
     remoteConfig,
-    //O.map(c => c.addr.value + ":" + c.port.value),
-    O.map((_) => "0.0.0.0:0000"),
+    O.map((c) => c.host + ":" + c.port),
     O.getOrElse(() => "0.0.0.0:0000")
   )
   return `zio://${actorSystemName}@${host}${actorPath}`
@@ -331,7 +333,11 @@ function resolvePath(
   return T.fail(new InvalidActorPath(path))
 }
 
-export function make(sysName: string, configFile: O.Option<string>) {
+export function make(
+  sysName: string,
+  configFile: O.Option<string>,
+  remoteConfig: O.Option<RemoteConfig> = O.none
+) {
   return pipe(
     T.do,
     T.bind("initActorRefMap", (_) =>
@@ -339,7 +345,7 @@ export function make(sysName: string, configFile: O.Option<string>) {
     ),
     T.let(
       "actorSystem",
-      (_) => new ActorSystem(sysName, O.none, O.none, _.initActorRefMap, O.none)
+      (_) => new ActorSystem(sysName, O.none, remoteConfig, _.initActorRefMap, O.none)
     ),
     T.map((_) => _.actorSystem)
   )
