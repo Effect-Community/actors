@@ -29,7 +29,11 @@
     "noImplicitThis": true,
     "strictNullChecks": true,
     "baseUrl": ".",
-    "target": "ES2018"
+    "target": "ES2018",
+    "paths": {
+      "@effect-ts/keeper/*": ["packages/keeper/build/*"],
+      "@effect-ts/keeper": ["packages/keeper/build"]
+    }
   },
   "exclude": ["node_modules", "build", "lib"]
 }
