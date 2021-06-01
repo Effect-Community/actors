@@ -191,6 +191,8 @@ export const makeSingleton =
     const tag_ = tag<Singleton<ID, F1>>()
     return {
       Tag: tag_,
+      ask: <A extends F1>(fa: A) => T.accessServiceM(tag_)((_) => _.actor.ask(fa)),
+      tell: <A extends F1>(fa: A) => T.accessServiceM(tag_)((_) => _.actor.tell(fa)),
       Live: L.fromManaged(tag_)(
         M.gen(function* (_) {
           const cluster = yield* _(Cluster)

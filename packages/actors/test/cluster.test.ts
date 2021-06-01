@@ -113,12 +113,10 @@ describe("Cluster", () => {
 
   it("singleton", () =>
     M.gen(function* (_) {
-      const { actor: processA } = yield* _(ProcessA.Tag)
+      expect(yield* _(ProcessA.ask(new Get()))).equals(0)
 
-      expect(yield* _(processA.ask(new Get()))).equals(0)
+      yield* _(ProcessA.ask(new Increase()))
 
-      yield* _(processA.ask(new Increase()))
-
-      expect(yield* _(processA.ask(new Get()))).equals(1)
+      expect(yield* _(ProcessA.ask(new Get()))).equals(1)
     })["|>"](M.useNow))
 })
