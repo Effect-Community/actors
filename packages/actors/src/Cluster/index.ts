@@ -4,14 +4,18 @@ import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
+import type { Has, Tag } from "@effect-ts/core/Has"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
 import * as K from "@effect-ts/keeper"
+import { KeeperClient } from "@effect-ts/keeper"
 
+import type * as A from "../Actor"
 import { ActorSystemTag } from "../ActorSystem"
+import type * as AM from "../Message"
 
 export const ClusterConfigSym = Symbol()
 
@@ -61,32 +65,35 @@ export const makeCluster = M.gen(function* (_) {
   const { host, port } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
   const system = yield* _(ActorSystemTag)
-  const membersDir = `/cluster/${system.actorSystemName}/members`
+  const clusterDir = `/cluster/${system.actorSystemName}`
+  const membersDir = `${clusterDir}/members`
 
   yield* _(cli.mkdir(membersDir))
 
-  const prefix = `${membersDir}/id_`
+  const prefix = `${membersDir}/member_`
 
   const nodePath = yield* _(
-    cli.create(prefix, {
-      mode: "EPHEMERAL_SEQUENTIAL",
-      data: Buffer.from(JSON.stringify({ host, port }))
-    })
+    cli
+      .create(prefix, {
+        mode: "EPHEMERAL_SEQUENTIAL",
+        data: Buffer.from(JSON.stringify({ host, port }))
+      })
+      ["|>"](M.make((p) => cli.remove(p)["|>"](T.orDie)))
   )
 
-  const nodeId = nodePath.substr(prefix.length)
+  const nodeId = `member_${nodePath.substr(prefix.length)}`
 
-  const getMemberHostPort = yield* _(
+  const memberHostPort = yield* _(
     T.memoize(
-      (childPath: string): T.Effect<unknown, K.ZooError, HostPort> =>
+      (member: string): T.Effect<unknown, K.ZooError, HostPort> =>
         pipe(
-          cli.getData(`${membersDir}/${childPath}`),
+          cli.getData(`${membersDir}/${member}`),
           T.chain(
             O.fold(
               () =>
                 T.die(
                   new ClusterException({
-                    message: `cannot find metadata on path: ${membersDir}/${childPath}`
+                    message: `cannot find metadata on path: ${membersDir}/${member}`
                   })
                 ),
               (b) => T.succeed(b)
@@ -97,25 +104,78 @@ export const makeCluster = M.gen(function* (_) {
     )
   )
 
-  const members = pipe(
-    cli.getChildren(membersDir),
-    T.chain(T.forEach(getMemberHostPort))
-  )
+  const members = pipe(cli.getChildren(membersDir), T.chain(T.forEach(memberHostPort)))
 
   const leader = pipe(
     cli.getChildren(membersDir),
     T.map(Chunk.head),
-    EO.chainT(getMemberHostPort)
+    EO.chainT(memberHostPort)
   )
+
+  const leaderId = (base: string) => pipe(cli.getChildren(base), T.map(Chunk.head))
 
   return {
     [ClusterSym]: ClusterSym,
     nodeId,
     members,
-    leader
+    leader,
+    clusterDir,
+    memberHostPort,
+    leaderId
   } as const
 })
 
 export interface Cluster extends _A<typeof makeCluster> {}
 export const Cluster = tag<Cluster>()
 export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
+
+export interface Singleton<ID extends string> {
+  id: ID
+  members: T.Effect<unknown, K.ZooError, Chunk.Chunk<string>>
+  leader: T.Effect<unknown, K.ZooError, O.Option<string>>
+}
+
+export const makeSingleton =
+  <ID extends string>(id: ID) =>
+  <R, R2, E2, S, F1 extends AM.AnyMessage>(
+    stateful: A.AbstractStateful<R, S, F1>,
+    init: T.Effect<R2, E2, S>
+  ): {
+    readonly Tag: Tag<Singleton<ID>>
+    readonly Live: L.Layer<
+      Has<K.KeeperClient> & Has<Cluster>,
+      K.ZooError,
+      Has<Singleton<ID>>
+    >
+  } => {
+    const tag_ = tag<Singleton<ID>>()
+    return {
+      Tag: tag_,
+      Live: L.fromManaged(tag_)(
+        M.gen(function* (_) {
+          const cluster = yield* _(Cluster)
+          const cli = yield* _(KeeperClient)
+          const membersDir = `${cluster.clusterDir}/singletons/${id}/members`
+
+          yield* _(cli.mkdir(membersDir))
+
+          yield* _(
+            pipe(
+              cli.create(`${membersDir}/${cluster.nodeId}`, { mode: "EPHEMERAL" }),
+              M.make((p) => cli.remove(p)["|>"](T.orDie))
+            )
+          )
+
+          const members = cli.getChildren(membersDir)
+
+          const leader = pipe(cli.getChildren(membersDir), T.map(Chunk.head))
+
+          return {
+            id,
+            members,
+            leader
+          }
+        })
+      )
+    }
+  }
