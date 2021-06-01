@@ -1,6 +1,7 @@
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
+import { pretty } from "@effect-ts/core/Effect/Cause"
 import type { Exit } from "@effect-ts/core/Effect/Exit"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -115,11 +116,11 @@ export const makeCluster = M.gen(function* (_) {
                       )
 
                       res.send(
-                        JSON.stringify(
-                          Encoder.for(
+                        JSON.stringify({
+                          response: Encoder.for(
                             actor.value.messages[payload._tag].ResponseSchema
                           )(resp)
-                        )
+                        })
                       )
 
                       break
@@ -144,7 +145,7 @@ export const makeCluster = M.gen(function* (_) {
                         )
                       )
 
-                      res.send(JSON.stringify({}))
+                      res.send(JSON.stringify({ tell: true }))
 
                       break
                     }
@@ -377,10 +378,19 @@ export const makeSingleton =
                   T.gen(function* (_) {
                     const [a, p] = yield* _(Q.take(queue))
 
+                    const { host, port } = yield* _(cluster.memberHostPort(leader))
+
+                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/${id}`
+
                     yield* _(
                       pipe(
-                        T.fail(
-                          `cannot process: ${JSON.stringify(a)}, send to ${leader}`
+                        cluster.ask(recipient)(a),
+                        T.onExit((x) =>
+                          T.succeedWith(() => {
+                            if (x._tag === "Failure") {
+                              console.log(pretty(x.cause))
+                            }
+                          })
                         ),
                         T.to(p)
                       )

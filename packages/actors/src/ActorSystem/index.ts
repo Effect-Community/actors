@@ -320,7 +320,13 @@ export class ActorSystem {
       T.let("actorName", (_) => _.solvedPath[3]),
       T.bind("actorMap", (_) => REF.get(this.refActorMap)),
       T.chain((params) => {
-        if (params.pathActSysName === this.actorSystemName) {
+        if (
+          params.pathActSysName === this.actorSystemName &&
+          ((this.remoteConfig._tag === "Some" &&
+            this.remoteConfig.value.host === params.addr &&
+            this.remoteConfig.value.port === params.port) ||
+            this.remoteConfig._tag === "None")
+        ) {
           return pipe(
             T.succeed(params),
             T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
@@ -335,8 +341,8 @@ export class ActorSystem {
         } else {
           if (
             this.remoteConfig._tag === "Some" &&
-            this.remoteConfig.value.host !== params.addr &&
-            this.remoteConfig.value.port !== params.port
+            (this.remoteConfig.value.host !== params.addr ||
+              this.remoteConfig.value.port !== params.port)
           ) {
             const envOp = envelope.command
 
@@ -370,7 +376,7 @@ export class ActorSystem {
                     pipe(
                       Parser.for((envOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]),
                       S.condemnDie
-                    )(response)
+                    )(response.response)
                   )
                 : envOp._tag === "Stop"
                 ? Chunk.from(response.stops)

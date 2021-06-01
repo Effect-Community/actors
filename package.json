@@ -36,6 +36,7 @@
     "@effect-ts/core": "^0.40.0",
     "@effect-ts/express": "^0.20.0",
     "@effect-ts/jest": "^0.28.0",
+    "@effect-ts/node": "^0.26.0",
     "@effect-ts/schema": "^0.8.1",
     "@effect-ts/tracing-plugin": "^0.11.0",
     "@types/cpx": "^1.5.1",
