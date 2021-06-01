@@ -1,3 +1,4 @@
+import { Chunk } from "@effect-ts/core"
 import * as HS from "@effect-ts/core/Collections/Immutable/HashSet"
 import * as MAP from "@effect-ts/core/Collections/Immutable/Map"
 import * as T from "@effect-ts/core/Effect"
@@ -334,36 +335,46 @@ export class ActorSystem {
         } else {
           if (
             this.remoteConfig._tag === "Some" &&
-            envelope.command._tag === "Ask" &&
             this.remoteConfig.value.host !== params.addr &&
             this.remoteConfig.value.port !== params.port
           ) {
-            const askOp = envelope.command
+            const envOp = envelope.command
 
             return T.gen(function* (_) {
               const response = yield* _(
                 T.promise(() =>
-                  fetch(`http://${params.addr}:${params.port}/ask`, {
+                  fetch(`http://${params.addr}:${params.port}/cmd`, {
                     method: "POST",
                     headers: {
                       Accept: "application/json",
                       "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                      _tag: askOp.msg["_tag"],
+                      _tag:
+                        envOp._tag === "Ask" || envOp._tag === "Tell"
+                          ? envOp.msg["_tag"]
+                          : undefined,
+                      op: envOp._tag,
                       path: envelope.recipient,
-                      request: Encoder.for(askOp.msg[AM.RequestSchemaSymbol])(askOp.msg)
+                      request:
+                        envOp._tag === "Ask" || envOp._tag === "Tell"
+                          ? Encoder.for(envOp.msg[AM.RequestSchemaSymbol])(envOp.msg)
+                          : undefined
                     })
                   }).then((r) => r.json())
                 )
               )
 
-              return yield* _(
-                pipe(
-                  Parser.for((askOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]),
-                  S.condemnDie
-                )(response)
-              )
+              return envOp._tag === "Ask"
+                ? yield* _(
+                    pipe(
+                      Parser.for((envOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]),
+                      S.condemnDie
+                    )(response)
+                  )
+                : envOp._tag === "Stop"
+                ? Chunk.from(response.stops)
+                : yield* _(T.unit)
             })
           }
 

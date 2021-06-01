@@ -56,8 +56,9 @@ export class ClusterException extends Tagged("ClusterException")<{
 
 export const CallPayload = S.props({
   _tag: S.prop(S.string),
+  op: S.prop(S.literal("Ask", "Tell", "Stop")).opt(),
   path: S.prop(S.string),
-  request: S.prop(S.unknown)
+  request: S.prop(S.unknown).opt()
 })
 
 export const decodePayload = CallPayload.Parser["|>"](S.condemnFail)
@@ -85,39 +86,85 @@ export const makeCluster = M.gen(function* (_) {
       pipe(
         T.gen(function* (_) {
           yield* _(
-            Ex.post("/ask", Ex.classic(exp.json()), (req, res) =>
+            Ex.post("/cmd", Ex.classic(exp.json()), (req, res) =>
               T.gen(function* (_) {
                 const payload = yield* _(decodePayload(req.body))
 
                 const actor = yield* _(system.unsafeLookup(payload.path))
 
                 if (actor._tag === "Some") {
-                  const msgArgs = yield* _(
-                    Parser.for(actor.value.messages[payload._tag].RequestSchema)["|>"](
-                      S.condemnFail
-                    )(payload.request)
-                  )
-
-                  const msg = new actor.value.messages[payload._tag](msgArgs)
-
-                  const resp = yield* _(
-                    actor.value.ask(msg)["|>"](
-                      T.mapError(
-                        (s) =>
-                          new ActorError({
-                            message: `actor error: ${JSON.stringify(s)}`
-                          })
+                  switch (payload.op) {
+                    case "Ask": {
+                      const msgArgs = yield* _(
+                        Parser.for(actor.value.messages[payload._tag].RequestSchema)[
+                          "|>"
+                        ](S.condemnFail)(payload.request)
                       )
-                    )
-                  )
 
-                  res.send(
-                    JSON.stringify(
-                      Encoder.for(actor.value.messages[payload._tag].ResponseSchema)(
-                        resp
+                      const msg = new actor.value.messages[payload._tag](msgArgs)
+
+                      const resp = yield* _(
+                        actor.value.ask(msg)["|>"](
+                          T.mapError(
+                            (s) =>
+                              new ActorError({
+                                message: `actor error: ${JSON.stringify(s)}`
+                              })
+                          )
+                        )
                       )
-                    )
-                  )
+
+                      res.send(
+                        JSON.stringify(
+                          Encoder.for(
+                            actor.value.messages[payload._tag].ResponseSchema
+                          )(resp)
+                        )
+                      )
+
+                      break
+                    }
+                    case "Tell": {
+                      const msgArgs = yield* _(
+                        Parser.for(actor.value.messages[payload._tag].RequestSchema)[
+                          "|>"
+                        ](S.condemnFail)(payload.request)
+                      )
+
+                      const msg = new actor.value.messages[payload._tag](msgArgs)
+
+                      yield* _(
+                        actor.value.tell(msg)["|>"](
+                          T.mapError(
+                            (s) =>
+                              new ActorError({
+                                message: `actor error: ${JSON.stringify(s)}`
+                              })
+                          )
+                        )
+                      )
+
+                      res.send(JSON.stringify({}))
+
+                      break
+                    }
+                    case "Stop": {
+                      const stops = yield* _(
+                        actor.value.stop["|>"](
+                          T.mapError(
+                            (s) =>
+                              new ActorError({
+                                message: `actor error: ${JSON.stringify(s)}`
+                              })
+                          )
+                        )
+                      )
+
+                      res.send(JSON.stringify({ stops: Chunk.toArray(stops) }))
+
+                      break
+                    }
+                  }
                 } else {
                   yield* _(
                     T.succeedWith(() => {
