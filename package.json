@@ -76,5 +76,8 @@
     "underscore": "^1.13.1",
     "yarn-deduplicate": "^3.0.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "resolutions": {
+    "underscore": "^1.13.1"
+  }
 }
