@@ -266,14 +266,6 @@ export const makeSingleton =
             )
           }
 
-          const tell = <A extends F1>(fa: A) => {
-            return pipe(
-              P.make<Throwable, any>(),
-              T.chain((promise) => Q.offer_(queue, tuple(fa, promise))),
-              T.zipRight(T.unit)
-            )
-          }
-
           const scope = yield* _(
             Scope.makeScope<Exit<unknown, unknown>>()["|>"](
               M.makeExit((_, ex) => _.close(ex))
@@ -306,13 +298,7 @@ export const makeSingleton =
             members,
             leader,
             membersDir,
-            actor: {
-              ask,
-              tell,
-              messages: actor.messages,
-              path: actor.path,
-              stop: actor.stop
-            }
+            actor
           }
         })
       )
