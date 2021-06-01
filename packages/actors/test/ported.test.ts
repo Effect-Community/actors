@@ -11,6 +11,7 @@ import { matchTag } from "@effect-ts/system/Utils"
 import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
 import * as AA from "../src/Address"
+import * as EN from "../src/Envelope"
 import * as ESS from "../src/EventSourcedStateful"
 import * as J from "../src/Journal"
 import * as AM from "../src/Message"
@@ -208,4 +209,33 @@ describe("Actor", () => {
 
     return program
   })
+
+  it("should handle envelope", () =>
+    pipe(
+      T.do,
+      T.bind("system", () => AS.make("test1", O.none)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, handler)),
+      T.bind("address", (_) => _.actor.path),
+      T.tap((_) =>
+        _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Increase" }), _.address.path))
+      ),
+      T.tap((_) =>
+        _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Increase" }), _.address.path))
+      ),
+      T.bind("c1", (_) =>
+        _.system.runEnvelope(EN.envelope(EN.ask({ _tag: "Get" }), _.address.path))
+      ),
+      T.tap((_) =>
+        _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Reset" }), _.address.path))
+      ),
+      T.bind("c2", (_) =>
+        _.system.runEnvelope(EN.envelope(EN.ask({ _tag: "Get" }), _.address.path))
+      ),
+      T.tap((result) =>
+        T.succeedWith(() => {
+          expect(result.c1).toEqual(2)
+          expect(result.c2).toEqual(0)
+        })
+      )
+    ))
 })

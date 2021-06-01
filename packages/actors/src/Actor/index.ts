@@ -11,7 +11,7 @@ import { tuple } from "@effect-ts/system/Function"
 import type * as AS from "../ActorSystem"
 import type { Throwable } from "../common"
 import type * as EV from "../Envelope"
-import type * as AM from "../Message"
+import * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
 export type PendingMessage<A extends AM.AnyMessage> = readonly [
@@ -26,12 +26,16 @@ export class Actor<F1 extends AM.AnyMessage> {
     readonly optOutActorSystem: () => T.Effect<unknown, Throwable, void>
   ) {}
 
-  unsafeOp(command: EV.Command) {
+  runOp(command: EV.Command) {
     switch (command._tag) {
       case "Ask":
-        return this.ask(command.msg)
+        return T.chain_(AM.decodeCommand(this.messages)(command.msg), ([msg, encode]) =>
+          T.map_(this.ask(msg), encode)
+        )
       case "Tell":
-        return this.tell(command.msg)
+        return T.chain_(AM.decodeCommand(this.messages)(command.msg), ([msg]) =>
+          this.tell(msg)
+        )
       case "Stop":
         return this.stop
     }

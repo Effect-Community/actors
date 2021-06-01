@@ -9,6 +9,7 @@ import { pipe } from "@effect-ts/system/Function"
 import type * as A from "../Actor"
 import * as AR from "../ActorRef"
 import * as AA from "../Address"
+import type { Throwable } from "../common"
 import {
   ActorAlreadyExistsException,
   ErrorMakingActorException,
@@ -17,6 +18,7 @@ import {
   NoRemoteSupportException,
   NoSuchActorException
 } from "../common"
+import type * as EN from "../Envelope"
 import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
@@ -248,6 +250,37 @@ export class ActorSystem {
                 () => T.succeed(O.none),
                 (actor: A.Actor<F1>) =>
                   T.succeed(O.some(new AR.ActorRefLocal(address, actor)))
+              )
+            )
+          )
+        } else {
+          return T.die(new NoRemoteSupportException())
+        }
+      })
+    )
+  }
+
+  runEnvelope(
+    envelope: EN.Envelope
+  ): T.Effect<unknown, InvalidActorPath | NoSuchActorException | Throwable, unknown> {
+    return pipe(
+      T.do,
+      T.bind("solvedPath", (_) => resolvePath(envelope.recipient)),
+      T.let("pathActSysName", (_) => _.solvedPath[0]),
+      T.let("addr", (_) => _.solvedPath[1]),
+      T.let("port", (_) => _.solvedPath[2]),
+      T.let("actorName", (_) => _.solvedPath[3]),
+      T.bind("actorMap", (_) => REF.get(this.refActorMap)),
+      T.chain((_) => {
+        if (_.pathActSysName === this.actorSystemName) {
+          return pipe(
+            T.succeed(_),
+            T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
+            T.chain((_) =>
+              O.fold_(
+                _.actorRef,
+                () => T.fail(new NoSuchActorException(envelope.recipient)),
+                (actor: A.Actor<any>) => actor.runOp(envelope.command)
               )
             )
           )

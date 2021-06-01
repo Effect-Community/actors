@@ -28,3 +28,8 @@ export class ErrorMakingActorException {
   readonly _tag = "ErrorMakingActorException"
   constructor(readonly error: unknown) {}
 }
+
+export class CommandParserException {
+  readonly _tag = "CommandParserException"
+  constructor(readonly exception: unknown) {}
+}
