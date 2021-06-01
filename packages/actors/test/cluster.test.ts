@@ -6,18 +6,20 @@ import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import { pipe } from "@effect-ts/system/Function"
 
+import { LiveActorSystem } from "../src/ActorSystem"
 import { Cluster, DefaultCluster, HostPort } from "../src/Cluster"
 import { TestKeeperConfig } from "./zookeeper"
 
 const Keeper = TestKeeperConfig[">>>"](Z.LiveKeeperClient)
 
-const AppLayer = Keeper[">+>"](
-  DefaultCluster({
-    sysName: "@effect-ts/actors/cluster/demo",
-    host: "127.0.0.1",
-    port: 34322
-  })
-)
+const AppLayer = LiveActorSystem("@effect-ts/actors/cluster/demo")
+  [">+>"](Keeper)
+  [">+>"](
+    DefaultCluster({
+      host: "127.0.0.1",
+      port: 34322
+    })
+  )
 
 describe("Cluster", () => {
   const { it } = pipe(J.runtime((TestEnv) => TestEnv[">+>"](AppLayer)))
@@ -52,7 +54,6 @@ describe("Cluster", () => {
     })["|>"](
       L.fresh(
         DefaultCluster({
-          sysName: "@effect-ts/actors/cluster/demo",
           host: "127.0.0.2",
           port: 34322
         })

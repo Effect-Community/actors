@@ -1,7 +1,9 @@
 import * as HS from "@effect-ts/core/Collections/Immutable/HashSet"
 import * as MAP from "@effect-ts/core/Collections/Immutable/Map"
 import * as T from "@effect-ts/core/Effect"
+import * as L from "@effect-ts/core/Effect/Layer"
 import * as REF from "@effect-ts/core/Effect/Ref"
+import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { pipe } from "@effect-ts/system/Function"
@@ -342,3 +344,8 @@ export function make(sysName: string, configFile: O.Option<string>) {
     T.map((_) => _.actorSystem)
   )
 }
+
+export const ActorSystemTag = tag<ActorSystem>()
+
+export const LiveActorSystem = (sysName: string) =>
+  L.fromEffect(ActorSystemTag)(make(sysName, O.none))

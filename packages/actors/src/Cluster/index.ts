@@ -11,7 +11,7 @@ import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
 import * as K from "@effect-ts/keeper"
 
-import * as AS from "../ActorSystem"
+import { ActorSystemTag } from "../ActorSystem"
 
 export const ClusterConfigSym = Symbol()
 
@@ -25,22 +25,15 @@ const EO = pipe(OT.monad(T.Monad), (M) => ({
 }))
 
 export interface ConfigInput {
-  readonly sysName: string
   readonly host: string
   readonly port: number
 }
 
 export interface ClusterConfig extends ConfigInput {
   readonly [ClusterConfigSym]: typeof ClusterConfigSym
-  readonly system: AS.ActorSystem
 }
 
-export function makeClusterConfig(_: {
-  system: AS.ActorSystem
-  sysName: string
-  host: string
-  port: number
-}): ClusterConfig {
+export function makeClusterConfig(_: { host: string; port: number }): ClusterConfig {
   return {
     [ClusterConfigSym]: ClusterConfigSym,
     ..._
@@ -48,13 +41,7 @@ export function makeClusterConfig(_: {
 }
 
 export function LiveClusterConfig(cfg: ConfigInput) {
-  return L.fromManaged(ClusterConfig)(
-    M.gen(function* (_) {
-      const system = yield* _(AS.make(cfg.sysName, O.none))
-
-      return makeClusterConfig({ system, ...cfg })
-    })
-  )
+  return L.fromEffect(ClusterConfig)(T.succeedWith(() => makeClusterConfig(cfg)))
 }
 
 export const ClusterConfig = tag<ClusterConfig>()
@@ -71,9 +58,9 @@ export class ClusterException extends Tagged("ClusterException")<{
 }> {}
 
 export const makeCluster = M.gen(function* (_) {
-  const { host, port, system } = yield* _(ClusterConfig)
+  const { host, port } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
-
+  const system = yield* _(ActorSystemTag)
   const membersDir = `/cluster/${system.actorSystemName}/members`
 
   yield* _(cli.mkdir(membersDir))
@@ -125,8 +112,7 @@ export const makeCluster = M.gen(function* (_) {
     [ClusterSym]: ClusterSym,
     nodeId,
     members,
-    leader,
-    system
+    leader
   } as const
 })
 
