@@ -3,22 +3,28 @@ import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
+import * as P from "@effect-ts/core/Effect/Promise"
+import * as Q from "@effect-ts/core/Effect/Queue"
 import * as Sh from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
-import type { Has, Tag } from "@effect-ts/core/Has"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
+import { AtomicReference } from "@effect-ts/core/Support/AtomicReference"
 import type { _A } from "@effect-ts/core/Utils"
 import type { ZooError } from "@effect-ts/keeper"
 import * as K from "@effect-ts/keeper"
 import { KeeperClient } from "@effect-ts/keeper"
+import { tuple } from "@effect-ts/system/Function"
 import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
 
 import type * as A from "../Actor"
-import { ActorSystemTag } from "../ActorSystem"
+import type { ActorRef } from "../ActorRef"
+import * as AS from "../ActorSystem"
+import type { Throwable } from "../common"
 import type * as AM from "../Message"
+import * as SUP from "../Supervisor"
 
 export const ClusterConfigSym = Symbol()
 
@@ -67,7 +73,7 @@ export class ClusterException extends Tagged("ClusterException")<{
 export const makeCluster = M.gen(function* (_) {
   const { host, port } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
-  const system = yield* _(ActorSystemTag)
+  const system = yield* _(AS.ActorSystemTag)
   const clusterDir = `/cluster/${system.actorSystemName}`
   const membersDir = `${clusterDir}/members`
 
@@ -168,11 +174,12 @@ export interface Cluster extends _A<typeof makeCluster> {}
 export const Cluster = tag<Cluster>()
 export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
 
-export interface Singleton<ID extends string> {
+export interface Singleton<ID extends string, F1 extends AM.AnyMessage> {
   id: ID
   members: T.Effect<unknown, K.ZooError, Chunk.Chunk<string>>
   leader: T.Effect<unknown, K.ZooError, O.Option<string>>
   membersDir: string
+  actor: ActorRef<F1>
 }
 
 export const makeSingleton =
@@ -180,20 +187,14 @@ export const makeSingleton =
   <R, R2, E2, S, F1 extends AM.AnyMessage>(
     stateful: A.AbstractStateful<R, S, F1>,
     init: T.Effect<R2, E2, S>
-  ): {
-    readonly Tag: Tag<Singleton<ID>>
-    readonly Live: L.Layer<
-      Has<K.KeeperClient> & Has<Cluster>,
-      K.ZooError,
-      Has<Singleton<ID>>
-    >
-  } => {
-    const tag_ = tag<Singleton<ID>>()
+  ) => {
+    const tag_ = tag<Singleton<ID, F1>>()
     return {
       Tag: tag_,
       Live: L.fromManaged(tag_)(
         M.gen(function* (_) {
           const cluster = yield* _(Cluster)
+          const system = yield* _(AS.ActorSystemTag)
           const cli = yield* _(KeeperClient)
           const membersDir = `${cluster.clusterDir}/singletons/${id}/members`
 
@@ -210,11 +211,68 @@ export const makeSingleton =
 
           const leader = pipe(cli.getChildren(membersDir), T.map(Chunk.head))
 
+          const localRef = new AtomicReference(O.emptyOf<ActorRef<F1>>())
+
+          const queue = yield* _(Q.makeUnbounded<A.PendingMessage<F1>>())
+
+          yield* _(
+            pipe(
+              cluster.runOnLeader(membersDir)(
+                pipe(
+                  init,
+                  T.chain((s) => system.make(id, SUP.none, s, stateful)),
+                  T.bracket(
+                    (ref) =>
+                      T.gen(function* (_) {
+                        while (1) {
+                          const [a, p] = yield* _(Q.take(queue))
+
+                          yield* _(ref.ask(a)["|>"](T.to(p)))
+                        }
+                      })["|>"](T.forever),
+                    (_) =>
+                      pipe(
+                        T.succeedWith(() => localRef.set(O.none)),
+                        T.zipRight(_.stop),
+                        T.orDie
+                      )
+                  )
+                )
+              ),
+              T.forkManaged
+            )
+          )
+
+          const ask = <A extends F1>(fa: A) => {
+            return pipe(
+              P.make<Throwable, AM.ResponseOf<A>>(),
+              T.tap((promise) => Q.offer_(queue, tuple(fa, promise))),
+              T.chain(P.await)
+            )
+          }
+
+          const tell = (fa: F1) => {
+            return pipe(
+              P.make<Throwable, any>(),
+              T.chain((promise) => Q.offer_(queue, tuple(fa, promise))),
+              T.zipRight(T.unit)
+            )
+          }
+
+          const actor: ActorRef<F1> = {
+            messages: stateful.messages,
+            path: T.die("Not Implemented"),
+            stop: T.die("Cannot be stopped"),
+            ask,
+            tell
+          }
+
           return {
             id,
             members,
             leader,
-            membersDir
+            membersDir,
+            actor
           }
         })
       )
