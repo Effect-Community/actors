@@ -5,6 +5,8 @@ import * as O from "@effect-ts/core/Option"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
+import * as Enc from "@effect-ts/schema/Encoder"
+import * as Parser from "@effect-ts/schema/Parser"
 import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
@@ -16,7 +18,7 @@ import { TestKeeperConfig } from "./zookeeper"
 const AppLayer = Z.LiveKeeperClient["<<<"](TestKeeperConfig)[">+>"](
   Cluster.LiveCluster["<<<"](
     ClusterConfigSym.StaticClusterConfig({
-      sysName: "effect-ts-demo-system",
+      sysName: "EffectTsActorsDemo",
       host: "127.0.0.1",
       port: 34322
     })
@@ -73,9 +75,12 @@ describe("Cluster", () => {
   it("singleton", () =>
     T.gen(function* (_) {
       const actor = yield* _(ProcessA.actor)
+      const cluster = yield* _(Cluster.Cluster)
 
-      expect((yield* _(actor.path)).path).equals(
-        "zio://effect-ts-demo-system@127.0.0.1:34322/singleton/process-a"
+      const path = (yield* _(actor.path)).path
+
+      expect(path).equals(
+        "zio://EffectTsActorsDemo@127.0.0.1:34322/singleton/process-a"
       )
 
       expect(yield* _(ProcessA.ask(new Get()))).equals(0)
@@ -83,5 +88,28 @@ describe("Cluster", () => {
       yield* _(ProcessA.ask(new Increase()))
 
       expect(yield* _(ProcessA.ask(new Get()))).equals(1)
+
+      const req = new Get()
+
+      const res = yield* _(
+        T.promise(() =>
+          fetch(`http://${cluster.host}:${cluster.port}/ask`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              _tag: req["_tag"],
+              path,
+              request: Enc.for(req[AM.RequestSchemaSymbol])(req)
+            })
+          }).then((r) => r.json())
+        )
+      )
+
+      expect(
+        yield* _(Parser.for(req[AM.ResponseSchemaSymbol])["|>"](S.condemnFail)(res))
+      ).equals(1)
     }))
 })

@@ -265,6 +265,45 @@ export class ActorSystem {
     )
   }
 
+  unsafeLookup<F1 extends AM.AnyMessage>(
+    address: string
+  ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
+    return pipe(
+      T.do,
+      T.bind("solvedPath", (_) => resolvePath(address)),
+      T.let("pathActSysName", (_) => _.solvedPath[0]),
+      T.let("addr", (_) => _.solvedPath[1]),
+      T.let("port", (_) => _.solvedPath[2]),
+      T.let("actorName", (_) => _.solvedPath[3]),
+      T.bind("actorMap", (_) => REF.get(this.refActorMap)),
+      T.chain((_) => {
+        if (_.pathActSysName === this.actorSystemName) {
+          return pipe(
+            T.succeed(_),
+            T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
+            T.chain((_) =>
+              O.fold_(
+                _.actorRef,
+                () => T.succeed(O.none),
+                (actor: A.Actor<F1>) =>
+                  T.succeed(
+                    O.some(
+                      new AR.ActorRefLocal(
+                        new AA.Address({ messages: actor.messages, path: address }),
+                        actor
+                      )
+                    )
+                  )
+              )
+            )
+          )
+        } else {
+          return T.die(new NoRemoteSupportException())
+        }
+      })
+    )
+  }
+
   runEnvelope(
     envelope: EN.Envelope
   ): T.Effect<unknown, InvalidActorPath | NoSuchActorException | Throwable, unknown> {
@@ -318,6 +357,7 @@ function buildPath(
 
 const regexFullPath =
   /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
+
 function resolvePath(
   path: string
 ): T.Effect<unknown, InvalidActorPath, readonly [string, number, number, string]> {

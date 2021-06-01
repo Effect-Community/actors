@@ -14,12 +14,16 @@ import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
+import * as Ex from "@effect-ts/express"
 import type { ZooError } from "@effect-ts/keeper"
 import * as K from "@effect-ts/keeper"
 import { KeeperClient } from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
+import * as Encoder from "@effect-ts/schema/Encoder"
+import * as Parser from "@effect-ts/schema/Parser"
 import { tuple } from "@effect-ts/system/Function"
 import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
+import * as exp from "express"
 
 import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
@@ -49,6 +53,19 @@ export class ClusterException extends Tagged("ClusterException")<{
   readonly message: string
 }> {}
 
+export const CallPayload = S.props({
+  _tag: S.prop(S.string),
+  path: S.prop(S.string),
+  request: S.prop(S.unknown)
+})
+
+export const decodePayload = CallPayload.Parser["|>"](S.condemnFail)
+export const encodePayload = CallPayload.Encoder
+
+export class ActorError extends Tagged("ActorError")<{
+  readonly message: string
+}> {}
+
 export const makeCluster = M.gen(function* (_) {
   const { host, port, sysName } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
@@ -59,6 +76,83 @@ export const makeCluster = M.gen(function* (_) {
   yield* _(cli.mkdir(membersDir))
 
   const prefix = `${membersDir}/member_`
+
+  const p = yield* _(P.make<never, void>())
+
+  yield* _(
+    T.forkManaged(
+      pipe(
+        T.gen(function* (_) {
+          yield* _(
+            Ex.post("/ask", Ex.classic(exp.json()), (req, res) =>
+              T.gen(function* (_) {
+                const payload = yield* _(decodePayload(req.body))
+
+                const actor = yield* _(system.unsafeLookup(payload.path))
+
+                if (actor._tag === "Some") {
+                  const msgArgs = yield* _(
+                    Parser.for(actor.value.messages[payload._tag].RequestSchema)["|>"](
+                      S.condemnFail
+                    )(payload.request)
+                  )
+
+                  const msg = new actor.value.messages[payload._tag](msgArgs)
+
+                  const resp = yield* _(
+                    actor.value.ask(msg)["|>"](
+                      T.mapError(
+                        (s) =>
+                          new ActorError({
+                            message: `actor error: ${JSON.stringify(s)}`
+                          })
+                      )
+                    )
+                  )
+
+                  res.send(
+                    JSON.stringify(
+                      Encoder.for(actor.value.messages[payload._tag].ResponseSchema)(
+                        resp
+                      )
+                    )
+                  )
+                } else {
+                  yield* _(
+                    T.succeedWith(() => {
+                      res.status(500).send({ message: `actor not found` })
+                    })
+                  )
+                }
+              })
+                ["|>"](
+                  T.catchTag("CondemnException", (s) =>
+                    T.succeedWith(() => res.status(500).send({ message: s.message }))
+                  )
+                )
+                ["|>"](
+                  T.catchTag("ActorError", (s) =>
+                    T.succeedWith(() => res.status(500).send({ message: s.message }))
+                  )
+                )
+                ["|>"](
+                  T.catchAll((s) => {
+                    return T.succeedWith(() =>
+                      res.status(500).send({ message: `invalid actor path: ${s.path}` })
+                    )
+                  })
+                )
+            )
+          )
+          yield* _(P.succeed_(p, void 0))
+          return yield* _(T.never)
+        }),
+        T.provideSomeLayer(Ex.LiveExpress("0.0.0.0", port))
+      )
+    )
+  )
+
+  yield* _(P.await(p))
 
   const nodePath = yield* _(
     cli
@@ -149,7 +243,9 @@ export const makeCluster = M.gen(function* (_) {
     memberHostPort,
     leaderId,
     runOnLeader,
-    system
+    system,
+    host,
+    port
   } as const
 })
 
