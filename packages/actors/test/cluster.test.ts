@@ -10,10 +10,8 @@ import { LiveActorSystem } from "../src/ActorSystem"
 import { Cluster, DefaultCluster, HostPort } from "../src/Cluster"
 import { TestKeeperConfig } from "./zookeeper"
 
-const Keeper = TestKeeperConfig[">>>"](Z.LiveKeeperClient)
-
 const AppLayer = LiveActorSystem("@effect-ts/actors/cluster/demo")
-  [">+>"](Keeper)
+  ["+++"](TestKeeperConfig[">>>"](Z.LiveKeeperClient))
   [">+>"](
     DefaultCluster({
       host: "127.0.0.1",
