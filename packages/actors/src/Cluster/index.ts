@@ -124,7 +124,10 @@ export const makeCluster = M.gen(function* (_) {
   const leaderId = (scope: string) => pipe(cli.getChildren(scope), T.map(Chunk.head))
 
   function runOnLeader(scope: string) {
-    return <R, E>(effect: T.Effect<R, E, never>) => {
+    return <R, E, R2, E2>(
+      onLeader: T.Effect<R, E, never>,
+      whileFollower: T.Effect<R2, E2, never>
+    ) => {
       return T.gen(function* (_) {
         const leader = yield* _(
           pipe(
@@ -149,9 +152,9 @@ export const makeCluster = M.gen(function* (_) {
 
         while (1) {
           if (leader === nodeId) {
-            yield* _(effect)
+            yield* _(onLeader)
           } else {
-            yield* _(cli.waitDelete(`${scope}/${leader}`))
+            yield* _(T.race_(cli.waitDelete(`${scope}/${leader}`), whileFollower))
           }
         }
       })
@@ -227,11 +230,9 @@ export const makeSingleton =
                   T.bracket(
                     (ref) =>
                       T.gen(function* (_) {
-                        while (1) {
-                          const [a, p] = yield* _(Q.take(queue))
+                        const [a, p] = yield* _(Q.take(queue))
 
-                          yield* _(ref.ask(a)["|>"](T.to(p)))
-                        }
+                        yield* _(ref.ask(a)["|>"](T.to(p)))
                       })["|>"](T.forever),
                     (_) =>
                       pipe(
@@ -240,7 +241,14 @@ export const makeSingleton =
                         T.orDie
                       )
                   )
-                )
+                ),
+                T.gen(function* (_) {
+                  const [a, p] = yield* _(Q.take(queue))
+
+                  yield* _(
+                    T.fail(`cannot process: ${JSON.stringify(a)}`)["|>"](T.to(p))
+                  )
+                })["|>"](T.forever)
               ),
               T.forkManaged
             )
