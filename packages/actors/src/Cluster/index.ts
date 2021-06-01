@@ -30,7 +30,8 @@ import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
 import { ClusterConfig } from "../ClusterConfig"
 import type { Throwable } from "../common"
-import * as AM from "../Message"
+import * as Envelope from "../Envelope"
+import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
 const EO = pipe(OT.monad(T.Monad), (M) => ({
@@ -235,33 +236,11 @@ export const makeCluster = M.gen(function* (_) {
   }
 
   function ask(path: string) {
-    return (msg: AM.AnyMessage) =>
-      T.gen(function* (_) {
-        const [_pathActSysName, addr, port, _actorName] = yield* _(
-          AS.resolvePath(path)["|>"](T.orDie)
-        )
-
-        const response = yield* _(
-          T.promise(() =>
-            fetch(`http://${addr}:${port}/ask`, {
-              method: "POST",
-              headers: {
-                Accept: "application/json",
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                _tag: msg["_tag"],
-                path,
-                request: Encoder.for(msg[AM.RequestSchemaSymbol])(msg)
-              })
-            }).then((r) => r.json())
-          )
-        )
-
-        return yield* _(
-          Parser.for(msg[AM.ResponseSchemaSymbol])["|>"](S.condemnDie)(response)
-        )
-      })
+    return <F extends AM.AnyMessage>(
+      msg: F
+    ): T.Effect<unknown, unknown, AM.ResponseOf<F>> =>
+      // @ts-expect-error
+      system.runEnvelope({ command: Envelope.ask(msg), recipient: path })
   }
 
   return {
