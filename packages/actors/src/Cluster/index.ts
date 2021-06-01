@@ -1,25 +1,27 @@
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
+import type { Exit } from "@effect-ts/core/Effect/Exit"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as Sh from "@effect-ts/core/Effect/Schedule"
+import * as Scope from "@effect-ts/core/Effect/Scope"
 import { pipe } from "@effect-ts/core/Function"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
-import { AtomicReference } from "@effect-ts/core/Support/AtomicReference"
 import type { _A } from "@effect-ts/core/Utils"
 import type { ZooError } from "@effect-ts/keeper"
 import * as K from "@effect-ts/keeper"
 import { KeeperClient } from "@effect-ts/keeper"
+import * as S from "@effect-ts/schema"
 import { tuple } from "@effect-ts/system/Function"
 import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
 
-import type * as A from "../Actor"
+import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
 import type { Throwable } from "../common"
@@ -217,31 +219,27 @@ export const makeSingleton =
 
           const leader = pipe(cli.getChildren(membersDir), T.map(Chunk.head))
 
-          const localRef = new AtomicReference(O.emptyOf<ActorRef<F1>>())
-
           const queue = yield* _(Q.makeUnbounded<A.PendingMessage<F1>>())
 
           yield* _(
             pipe(
               cluster.runOnLeader(membersDir)(
-                pipe(
-                  init,
-                  T.chain((s) => system.make(id, SUP.none, s, stateful)),
-                  T.bracket(
-                    (ref) =>
+                M.gen(function* (_) {
+                  const state = yield* _(init)
+                  const ref: ActorRef<F1> = yield* _(
+                    system.make(`singleton-${id}`, SUP.none, state, stateful)
+                  )
+
+                  return yield* _(
+                    M.fromEffect(
                       T.gen(function* (_) {
                         const [a, p] = yield* _(Q.take(queue))
 
                         yield* _(ref.ask(a)["|>"](T.to(p)))
-                      })["|>"](T.forever),
-                    (_) =>
-                      pipe(
-                        T.succeedWith(() => localRef.set(O.none)),
-                        T.zipRight(_.stop),
-                        T.orDie
-                      )
+                      })["|>"](T.forever)
+                    )
                   )
-                ),
+                })["|>"](M.useNow),
                 (leader) =>
                   T.gen(function* (_) {
                     const [a, p] = yield* _(Q.take(queue))
@@ -268,7 +266,7 @@ export const makeSingleton =
             )
           }
 
-          const tell = (fa: F1) => {
+          const tell = <A extends F1>(fa: A) => {
             return pipe(
               P.make<Throwable, any>(),
               T.chain((promise) => Q.offer_(queue, tuple(fa, promise))),
@@ -276,20 +274,45 @@ export const makeSingleton =
             )
           }
 
-          const actor: ActorRef<F1> = {
-            messages: stateful.messages,
-            path: T.die("Not Implemented"),
-            stop: T.die("Cannot be stopped"),
-            ask,
-            tell
-          }
+          const scope = yield* _(
+            Scope.makeScope<Exit<unknown, unknown>>()["|>"](
+              M.makeExit((_, ex) => _.close(ex))
+            )
+          )
+
+          const actor = yield* _(
+            pipe(
+              system.make(
+                `singleton/${id}`,
+                SUP.none,
+                0,
+                A.stateful(
+                  stateful.messages,
+                  S.unknown
+                )(
+                  () => (msg) =>
+                    pipe(
+                      ask(new stateful.messages[msg._tag](msg.payload)),
+                      T.chain((res) => msg.return(0, res))
+                    )
+                )
+              ),
+              T.overrideForkScope(scope.scope)
+            )
+          )
 
           return {
             id,
             members,
             leader,
             membersDir,
-            actor
+            actor: {
+              ask,
+              tell,
+              messages: actor.messages,
+              path: actor.path,
+              stop: actor.stop
+            }
           }
         })
       )
