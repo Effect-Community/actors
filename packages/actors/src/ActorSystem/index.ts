@@ -5,6 +5,9 @@ import * as L from "@effect-ts/core/Effect/Layer"
 import * as REF from "@effect-ts/core/Effect/Ref"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
+import * as S from "@effect-ts/schema"
+import * as Encoder from "@effect-ts/schema/Encoder"
+import * as Parser from "@effect-ts/schema/Parser"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { pipe } from "@effect-ts/system/Function"
 
@@ -21,7 +24,7 @@ import {
   NoSuchActorException
 } from "../common"
 import type * as EN from "../Envelope"
-import type * as AM from "../Message"
+import * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
 /**
@@ -315,10 +318,10 @@ export class ActorSystem {
       T.let("port", (_) => _.solvedPath[2]),
       T.let("actorName", (_) => _.solvedPath[3]),
       T.bind("actorMap", (_) => REF.get(this.refActorMap)),
-      T.chain((_) => {
-        if (_.pathActSysName === this.actorSystemName) {
+      T.chain((params) => {
+        if (params.pathActSysName === this.actorSystemName) {
           return pipe(
-            T.succeed(_),
+            T.succeed(params),
             T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
             T.chain((_) =>
               O.fold_(
@@ -329,6 +332,41 @@ export class ActorSystem {
             )
           )
         } else {
+          if (
+            this.remoteConfig._tag === "Some" &&
+            envelope.command._tag === "Ask" &&
+            this.remoteConfig.value.host !== params.addr &&
+            this.remoteConfig.value.port !== params.port
+          ) {
+            const askOp = envelope.command
+
+            return T.gen(function* (_) {
+              const response = yield* _(
+                T.promise(() =>
+                  fetch(`http://${params.addr}:${params.port}/ask`, {
+                    method: "POST",
+                    headers: {
+                      Accept: "application/json",
+                      "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                      _tag: askOp.msg["_tag"],
+                      path: envelope.recipient,
+                      request: Encoder.for(askOp.msg[AM.RequestSchemaSymbol])(askOp.msg)
+                    })
+                  }).then((r) => r.json())
+                )
+              )
+
+              return yield* _(
+                pipe(
+                  Parser.for((askOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]),
+                  S.condemnDie
+                )(response)
+              )
+            })
+          }
+
           return T.die(new NoRemoteSupportException())
         }
       })
@@ -358,17 +396,12 @@ function buildPath(
 const regexFullPath =
   /^(?:zio:\/\/)(\w+)[@](\d+\.\d+\.\d+\.\d+)[:](\d+)[/]([\w+|\d+|\-_.*$+:@&=,!~';.|/]+)$/i
 
-function resolvePath(
+export function resolvePath(
   path: string
-): T.Effect<unknown, InvalidActorPath, readonly [string, number, number, string]> {
+): T.Effect<unknown, InvalidActorPath, readonly [string, string, number, string]> {
   const match = path.match(regexFullPath)
   if (match) {
-    return T.succeed([
-      match[1],
-      parseInt(match[2], 10),
-      parseInt(match[3], 10),
-      "/" + match[4]
-    ])
+    return T.succeed([match[1], match[2], parseInt(match[3], 10), "/" + match[4]])
   }
   return T.fail(new InvalidActorPath(path))
 }

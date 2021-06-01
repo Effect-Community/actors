@@ -5,8 +5,6 @@ import * as O from "@effect-ts/core/Option"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
-import * as Enc from "@effect-ts/schema/Encoder"
-import * as Parser from "@effect-ts/schema/Parser"
 import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
@@ -89,27 +87,6 @@ describe("Cluster", () => {
 
       expect(yield* _(ProcessA.ask(new Get()))).equals(1)
 
-      const req = new Get()
-
-      const res = yield* _(
-        T.promise(() =>
-          fetch(`http://${cluster.host}:${cluster.port}/ask`, {
-            method: "POST",
-            headers: {
-              Accept: "application/json",
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              _tag: req["_tag"],
-              path,
-              request: Enc.for(req[AM.RequestSchemaSymbol])(req)
-            })
-          }).then((r) => r.json())
-        )
-      )
-
-      expect(
-        yield* _(Parser.for(req[AM.ResponseSchemaSymbol])["|>"](S.condemnFail)(res))
-      ).equals(1)
+      expect(yield* _(cluster.ask(path)(new Get()))).equals(1)
     }))
 })
