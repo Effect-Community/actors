@@ -121,40 +121,40 @@ export const makeCluster = M.gen(function* (_) {
     EO.chainT(memberHostPort)
   )
 
-  const leaderId = (scope: string) => pipe(cli.getChildren(scope), T.map(Chunk.head))
+  const leaderId = (scope: string) =>
+    pipe(
+      cli.getChildren(scope),
+      T.map(Chunk.head),
+      T.chain(T.getOrFail),
+      T.retry(
+        pipe(
+          Sh.windowed(100),
+          Sh.whileInput(
+            (u: ZooError | NoSuchElementException) =>
+              u._tag === "NoSuchElementException"
+          )
+        )
+      ),
+      T.catch("_tag", "NoSuchElementException", () =>
+        T.fail(new ClusterException({ message: `cannot find a leader for ${scope}` }))
+      )
+    )
 
   function runOnLeader(scope: string) {
     return <R, E, R2, E2>(
       onLeader: T.Effect<R, E, never>,
-      whileFollower: T.Effect<R2, E2, never>
+      whileFollower: (leader: string) => T.Effect<R2, E2, never>
     ) => {
       return T.gen(function* (_) {
-        const leader = yield* _(
-          pipe(
-            leaderId(scope),
-            T.chain(T.getOrFail),
-            T.retry(
-              pipe(
-                Sh.windowed(100),
-                Sh.whileInput(
-                  (u: ZooError | NoSuchElementException) =>
-                    u._tag === "NoSuchElementException"
-                )
-              )
-            ),
-            T.catch("_tag", "NoSuchElementException", () =>
-              T.die(
-                new ClusterException({ message: `cannot find a leader for ${scope}` })
-              )
-            )
-          )
-        )
+        const leader = yield* _(leaderId(scope))
 
         while (1) {
           if (leader === nodeId) {
             yield* _(onLeader)
           } else {
-            yield* _(T.race_(cli.waitDelete(`${scope}/${leader}`), whileFollower))
+            yield* _(
+              T.race_(cli.waitDelete(`${scope}/${leader}`), whileFollower(leader))
+            )
           }
         }
       })
@@ -242,13 +242,19 @@ export const makeSingleton =
                       )
                   )
                 ),
-                T.gen(function* (_) {
-                  const [a, p] = yield* _(Q.take(queue))
+                (leader) =>
+                  T.gen(function* (_) {
+                    const [a, p] = yield* _(Q.take(queue))
 
-                  yield* _(
-                    T.fail(`cannot process: ${JSON.stringify(a)}`)["|>"](T.to(p))
-                  )
-                })["|>"](T.forever)
+                    yield* _(
+                      pipe(
+                        T.fail(
+                          `cannot process: ${JSON.stringify(a)}, send to ${leader}`
+                        ),
+                        T.to(p)
+                      )
+                    )
+                  })["|>"](T.forever)
               ),
               T.forkManaged
             )
