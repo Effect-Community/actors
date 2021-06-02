@@ -81,8 +81,7 @@ describe("Messaging", () => {
 
   it("communicate", () =>
     T.gen(function* (_) {
-      const a = yield* _(Sub.actor)
-      yield* _(Hub.ask(new Subscribe({ recipient: a })))
+      yield* _(Hub.ask(new Subscribe({ recipient: yield* _(Sub.actor) })))
 
       expect((yield* _(Sub.ask(new GetMessages()))).messages).equals(
         Chunk.single("it works")
