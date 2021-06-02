@@ -41,9 +41,7 @@ export function transactional<S, F1 extends AM.AnyMessage>(
 }
 
 export interface StateStorageAdapter {
-  readonly transaction: (
-    actorName: string
-  ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A>
+  readonly transaction: <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A>
 
   readonly get: (actorName: string) => T.Effect<unknown, never, O.Option<string>>
 
@@ -74,15 +72,8 @@ export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
       );`)
     )
 
-    const transaction: (
-      actorName: string
-    ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A> = (id) => (eff) =>
-      cli.transaction(
-        pipe(
-          cli.query(`SELECT pg_advisory_xact_lock(${hashStringToInt(id)});`),
-          T.zipRight(eff)
-        )
-      )
+    const transaction: <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A> =
+      cli.transaction
 
     const get: (actorName: string) => T.Effect<unknown, never, O.Option<string>> = (
       id
@@ -186,47 +177,43 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
           AS.resolvePath(context.address.path)["|>"](T.orDie),
           T.map(([sysName, __, ___, actorName]) => `${sysName}(${actorName})`),
           T.chain((actorName) =>
-            prov.transaction(actorName)(
-              pipe(
-                T.do,
-                T.bind("s", () =>
-                  self.getState(initial, context.actorSystem, actorName)
-                ),
-                T.let("fa", () => msg[0]),
-                T.let("promise", () => msg[1]),
-                T.let("receiver", (_) =>
-                  this.receive(
-                    _.s,
-                    context
-                  )({
-                    _tag: _.fa._tag,
-                    payload: _.fa,
-                    return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
-                  } as any)
-                ),
-                T.let(
-                  "completer",
-                  (_) =>
-                    ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
-                      pipe(
-                        self.setState(s, actorName),
-                        T.zipRight(P.succeed_(_.promise, a)),
-                        T.as(T.unit)
-                      )
-                ),
-                T.chain((_) =>
-                  T.foldM_(
-                    _.receiver,
-                    (e) =>
-                      pipe(
-                        supervisor.supervise(_.receiver, e),
-                        T.foldM((__) => P.fail_(_.promise, e), _.completer)
-                      ),
-                    _.completer
-                  )
-                ),
-                T.tapCause((x) => T.succeedWith(() => console.error(pretty(x))))
-              )
+            pipe(
+              T.do,
+              T.bind("s", () => self.getState(initial, context.actorSystem, actorName)),
+              T.let("fa", () => msg[0]),
+              T.let("promise", () => msg[1]),
+              T.let("receiver", (_) =>
+                this.receive(
+                  _.s,
+                  context
+                )({
+                  _tag: _.fa._tag,
+                  payload: _.fa,
+                  return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
+                } as any)
+              ),
+              T.let(
+                "completer",
+                (_) =>
+                  ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
+                    pipe(
+                      self.setState(s, actorName),
+                      T.zipRight(P.succeed_(_.promise, a)),
+                      T.as(T.unit)
+                    )
+              ),
+              T.chain((_) =>
+                T.foldM_(
+                  _.receiver,
+                  (e) =>
+                    pipe(
+                      supervisor.supervise(_.receiver, e),
+                      T.foldM((__) => P.fail_(_.promise, e), _.completer)
+                    ),
+                  _.completer
+                )
+              ),
+              T.tapCause((x) => T.succeedWith(() => console.error(pretty(x))))
             )
           )
         )
