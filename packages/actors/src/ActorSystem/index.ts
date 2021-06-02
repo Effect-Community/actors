@@ -311,6 +311,8 @@ export class ActorSystem {
   runEnvelope(
     envelope: EN.Envelope
   ): T.Effect<unknown, InvalidActorPath | NoSuchActorException | Throwable, unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this
     return pipe(
       T.do,
       T.bind("solvedPath", (_) => resolvePath(envelope.recipient)),
@@ -373,9 +375,12 @@ export class ActorSystem {
 
               return envOp._tag === "Ask"
                 ? yield* _(
-                    pipe(
-                      Parser.for((envOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]),
-                      S.condemnDie
+                    S.condemnDie((u) =>
+                      AR.withSystem(self)(() =>
+                        Parser.for(
+                          (envOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]
+                        )(u)
+                      )
                     )(response.response)
                   )
                 : envOp._tag === "Stop"

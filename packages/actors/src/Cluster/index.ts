@@ -27,6 +27,7 @@ import * as exp from "express"
 
 import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
+import { withSystem } from "../ActorRef"
 import * as AS from "../ActorSystem"
 import { ClusterConfig } from "../ClusterConfig"
 import type { Throwable } from "../common"
@@ -88,7 +89,8 @@ export const makeCluster = M.gen(function* (_) {
           yield* _(
             Ex.post("/cmd", Ex.classic(exp.json()), (req, res) =>
               T.gen(function* (_) {
-                const payload = yield* _(decodePayload(req.body))
+                const body = req.body
+                const payload = yield* _(decodePayload(body))
 
                 const actor = yield* _(system.unsafeLookup(payload.path))
 
@@ -96,9 +98,13 @@ export const makeCluster = M.gen(function* (_) {
                   switch (payload.op) {
                     case "Ask": {
                       const msgArgs = yield* _(
-                        Parser.for(actor.value.messages[payload._tag].RequestSchema)[
-                          "|>"
-                        ](S.condemnFail)(payload.request)
+                        S.condemnFail((u) =>
+                          withSystem(system)(() =>
+                            Parser.for(
+                              actor.value.messages[payload._tag].RequestSchema
+                            )(u)
+                          )
+                        )(payload.request)
                       )
 
                       const msg = new actor.value.messages[payload._tag](msgArgs)
@@ -126,9 +132,13 @@ export const makeCluster = M.gen(function* (_) {
                     }
                     case "Tell": {
                       const msgArgs = yield* _(
-                        Parser.for(actor.value.messages[payload._tag].RequestSchema)[
-                          "|>"
-                        ](S.condemnFail)(payload.request)
+                        S.condemnFail((u) =>
+                          withSystem(system)(() =>
+                            Parser.for(
+                              actor.value.messages[payload._tag].RequestSchema
+                            )(u)
+                          )
+                        )(payload.request)
                       )
 
                       const msg = new actor.value.messages[payload._tag](msgArgs)
@@ -286,7 +296,10 @@ export const makeCluster = M.gen(function* (_) {
       msg: F
     ): T.Effect<unknown, unknown, AM.ResponseOf<F>> =>
       // @ts-expect-error
-      system.runEnvelope({ command: Envelope.ask(msg), recipient: path })
+      system.runEnvelope({
+        command: Envelope.ask(msg),
+        recipient: path
+      })
   }
 
   return {
@@ -377,13 +390,13 @@ export const makeSingleton =
                 A.stateful(
                   stateful.messages,
                   S.unknown
-                )(
-                  () => (msg) =>
-                    pipe(
-                      ask(new stateful.messages[msg._tag](msg.payload)),
-                      T.chain((res) => msg.return(0, res))
-                    )
-                )
+                )(() => (msg) => {
+                  return pipe(
+                    // @ts-expect-error
+                    ask(msg.payload),
+                    T.chain((res) => msg.return(0, res))
+                  )
+                })
               ),
               T.overrideForkScope(scope.scope)
             )
