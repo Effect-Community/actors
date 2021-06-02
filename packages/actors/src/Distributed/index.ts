@@ -21,19 +21,19 @@ import type { Throwable } from "../common"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
-export interface Sharded<N extends string, F1 extends AM.AnyMessage> {
+export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
   name: N
   messageToId: (_: F1) => string
   actor: ActorRef<F1>
 }
 
-export const makeSharded = <N extends string, R, S, F1 extends AM.AnyMessage>(
+export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage>(
   name: N,
   stateful: A.AbstractStateful<R, S, F1>,
   init: S,
   messageToId: (_: F1) => string
 ) => {
-  const tag_ = tag<Sharded<N, F1>>()
+  const tag_ = tag<Distributed<N, F1>>()
   return {
     Tag: tag_,
     actor: T.accessService(tag_)((_) => _.actor),
@@ -179,7 +179,7 @@ export const makeSharded = <N extends string, R, S, F1 extends AM.AnyMessage>(
 
         return yield* _(
           T.succeed(
-            identity<Sharded<N, F1>>({
+            identity<Distributed<N, F1>>({
               actor: sharded,
               messageToId,
               name

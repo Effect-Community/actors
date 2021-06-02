@@ -9,9 +9,9 @@ import { matchTag } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
 import * as ClusterConfigSym from "../src/ClusterConfig"
+import * as Sharded from "../src/Distributed"
 import * as AM from "../src/Message"
 import { LiveStateStorageAdapter, transactional } from "../src/Persistent"
-import * as Sharded from "../src/Sharded"
 import { TestPG } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
@@ -70,7 +70,7 @@ const userHandler = transactional(
   })
 )
 
-const Users = Sharded.makeSharded(
+const Users = Sharded.makeDistributed(
   "users",
   userHandler,
   new Initial({}),
