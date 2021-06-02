@@ -1,7 +1,6 @@
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as HashMap from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as T from "@effect-ts/core/Effect"
-import type { HasClock } from "@effect-ts/core/Effect/Clock"
 import type { Exit } from "@effect-ts/core/Effect/Exit"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -17,7 +16,6 @@ import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
 import { Cluster } from "../Cluster"
-import type { Throwable } from "../common"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
@@ -59,7 +57,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
               `distributed/proxy/${name}`,
               SUP.none,
               {},
-              new DistributedProxy(name, messageToId, stateful.messages, (queue) =>
+              new A.ActorProxy(stateful.messages, (queue) =>
                 T.gen(function* (_) {
                   while (1) {
                     const all = yield* _(Q.takeBetween_(queue, 1, 100))
@@ -196,43 +194,5 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
         )
       })
     )
-  }
-}
-
-export class DistributedProxy<
-  N extends string,
-  ID extends string,
-  R,
-  F1 extends AM.AnyMessage,
-  E
-> extends A.AbstractStateful<R, {}, F1> {
-  readonly _N!: () => N
-  readonly _ID!: () => ID
-
-  constructor(
-    readonly name: N,
-    readonly id: (_: F1) => ID,
-    readonly messages: AM.MessageRegistry<F1>,
-    readonly process: (_: Q.Queue<A.PendingMessage<F1>>) => T.Effect<R, E, never>
-  ) {
-    super()
-  }
-
-  defaultMailboxSize = 10_000
-
-  makeActor(
-    supervisor: SUP.Supervisor<R>,
-    context: AS.Context<F1>,
-    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
-    mailboxSize: number = this.defaultMailboxSize
-  ): (initial: {}) => T.RIO<R & HasClock, A.Actor<F1>> {
-    return () => {
-      return pipe(
-        T.do,
-        T.bind("queue", () => Q.makeBounded<A.PendingMessage<F1>>(mailboxSize)),
-        T.tap((_) => pipe(this.process(_.queue), T.fork)),
-        T.map((_) => new A.Actor(this.messages, _.queue, optOutActorSystem))
-      )
-    }
   }
 }

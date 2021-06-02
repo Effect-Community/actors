@@ -194,3 +194,34 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
       )
   }
 }
+
+export class ActorProxy<R, F1 extends AM.AnyMessage, E> extends AbstractStateful<
+  R,
+  {},
+  F1
+> {
+  constructor(
+    readonly messages: AM.MessageRegistry<F1>,
+    readonly process: (_: Q.Queue<PendingMessage<F1>>) => T.Effect<R, E, never>
+  ) {
+    super()
+  }
+
+  defaultMailboxSize = 10_000
+
+  makeActor(
+    supervisor: SUP.Supervisor<R>,
+    context: AS.Context<F1>,
+    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
+    mailboxSize: number = this.defaultMailboxSize
+  ): (initial: {}) => T.RIO<R & HasClock, Actor<F1>> {
+    return () => {
+      return pipe(
+        T.do,
+        T.bind("queue", () => Q.makeBounded<PendingMessage<F1>>(mailboxSize)),
+        T.tap((_) => pipe(this.process(_.queue), T.fork)),
+        T.map((_) => new Actor(this.messages, _.queue, optOutActorSystem))
+      )
+    }
+  }
+}
