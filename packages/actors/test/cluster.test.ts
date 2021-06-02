@@ -78,7 +78,7 @@ describe("Cluster", () => {
       const path = (yield* _(actor.path)).path
 
       expect(path).equals(
-        "zio://EffectTsActorsDemo@127.0.0.1:34322/singleton/process-a"
+        "zio://EffectTsActorsDemo@127.0.0.1:34322/singleton/proxy/process-a"
       )
 
       expect(yield* _(ProcessA.ask(new Get()))).equals(0)

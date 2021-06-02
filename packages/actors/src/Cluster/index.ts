@@ -359,7 +359,7 @@ export const makeSingleton =
                 M.gen(function* (_) {
                   const state = yield* _(init)
                   const ref: ActorRef<F1> = yield* _(
-                    system.make(`singleton-${id}`, SUP.none, state, stateful)
+                    system.make(`singleton/leader/${id}`, SUP.none, state, stateful)
                   )
 
                   return yield* _(
@@ -377,7 +377,7 @@ export const makeSingleton =
                     const all = yield* _(Q.takeAll(queue))
                     const { host, port } = yield* _(cluster.memberHostPort(leader))
 
-                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/${id}`
+                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/proxy/${id}`
 
                     for (const [a, p] of all) {
                       yield* _(pipe(cluster.ask(recipient)(a), T.to(p)))
@@ -410,7 +410,7 @@ export const makeSingleton =
           const actor = yield* _(
             pipe(
               system.make(
-                `singleton/${id}`,
+                `singleton/proxy/${id}`,
                 SUP.none,
                 0,
                 A.stateful(
