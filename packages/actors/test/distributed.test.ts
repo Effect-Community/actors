@@ -55,27 +55,25 @@ class Initial extends S.Model<Initial>()(
   S.props({ _tag: S.prop(S.literal("Initial")) })
 ) {}
 
-const userHandler = transactional(
-  Message,
-  S.union({ Initial, User })
-)((state) =>
-  matchTag({
-    Get: (_) => {
-      return _.return(
-        state,
-        matchTag_(state, { Initial: () => new UserNotFound({}), User: (_) => _ })
-      )
-    },
-    Create: (_) => {
-      const user = new User({ id: _.payload.id })
-      return _.return(user, user)
-    }
-  })
-)
-
 const Users = D.makeDistributed(
   "users",
-  userHandler,
+  transactional(
+    Message,
+    S.union({ Initial, User })
+  )((state) =>
+    matchTag({
+      Get: (_) => {
+        return _.return(
+          state,
+          matchTag_(state, { Initial: () => new UserNotFound({}), User: (_) => _ })
+        )
+      },
+      Create: (_) => {
+        const user = new User({ id: _.payload.id })
+        return _.return(user, user)
+      }
+    })
+  ),
   new Initial({}),
   ({ message: { id }, name }) => `${name}-${id}`
 )
