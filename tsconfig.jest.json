@@ -9,7 +9,9 @@
           "^packages/actors/src/(.*)": "(@effect-ts/actors): src/$1",
           "^packages/actors/test/(.*)": "(@effect-ts/actors/test): test/$1",
           "^packages/keeper/src/(.*)": "(@effect-ts/keeper): src/$1",
-          "^packages/keeper/test/(.*)": "(@effect-ts/keeper/test): test/$1"
+          "^packages/keeper/test/(.*)": "(@effect-ts/keeper/test): test/$1",
+          "^packages/pg/src/(.*)": "(@effect-ts/pg): src/$1",
+          "^packages/pg/test/(.*)": "(@effect-ts/pg/test): test/$1"
         }
       },
       { "transform": "typescript-transform-paths" }

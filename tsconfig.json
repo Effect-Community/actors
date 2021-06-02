@@ -5,7 +5,9 @@
     "baseUrl": ".",
     "paths": {
       "@effect-ts/keeper/*": ["packages/keeper/src/*"],
-      "@effect-ts/keeper": ["packages/keeper/src"]
+      "@effect-ts/keeper": ["packages/keeper/src"],
+      "@effect-ts/pg/*": ["packages/pg/src/*"],
+      "@effect-ts/pg": ["packages/pg/src"]
     },
     "target": "ES2018",
     "typeRoots": ["./node_modules/@types", "./typings"]

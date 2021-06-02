@@ -32,7 +32,9 @@
     "target": "ES2018",
     "paths": {
       "@effect-ts/keeper/*": ["packages/keeper/build/*"],
-      "@effect-ts/keeper": ["packages/keeper/build"]
+      "@effect-ts/keeper": ["packages/keeper/build"],
+      "@effect-ts/pg/*": ["packages/pg/build/*"],
+      "@effect-ts/pg": ["packages/pg/build"]
     }
   },
   "exclude": ["node_modules", "build", "lib"]
