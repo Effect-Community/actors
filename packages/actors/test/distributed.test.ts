@@ -74,7 +74,7 @@ const Users = D.makeDistributed(
   "users",
   userHandler,
   new Initial({}),
-  (_) => `users-${_.id}`
+  ({ message: { id }, name }) => `${name}-${id}`
 )
 
 describe("Distributed", () => {

@@ -21,7 +21,7 @@ import * as SUP from "../Supervisor"
 
 export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
   name: N
-  messageToId: (_: F1) => string
+  messageToId: (_: { name: N; message: F1 }) => string
   actor: ActorRef<F1>
 }
 
@@ -29,7 +29,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
   name: N,
   stateful: A.AbstractStateful<R, S, F1>,
   init: S,
-  messageToId: (_: F1) => string
+  messageToId: (_: { name: N; message: F1 }) => string
 ) => {
   const tag_ = tag<Distributed<N, F1>>()
   return {
@@ -65,7 +65,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                     const slots: Record<string, Chunk.Chunk<A.PendingMessage<F1>>> = {}
 
                     for (const r of all) {
-                      const id = messageToId(r[0])
+                      const id = messageToId({ name, message: r[0] })
                       if (!slots[id]) {
                         slots[id] = Chunk.empty()
                       }
