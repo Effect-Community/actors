@@ -1,7 +1,6 @@
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
-import { pretty } from "@effect-ts/core/Effect/Cause"
 import type { Exit } from "@effect-ts/core/Effect/Exit"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -268,9 +267,8 @@ export const makeCluster = M.gen(function* (_) {
       whileFollower: (leader: string) => T.Effect<R2, E2, never>
     ) => {
       return T.gen(function* (_) {
-        const leader = yield* _(leaderId(scope))
-
         while (1) {
+          const leader = yield* _(leaderId(scope))
           if (leader === nodeId) {
             yield* _(onLeader)
           } else {
@@ -376,27 +374,21 @@ export const makeSingleton =
                 })["|>"](M.useNow),
                 (leader) =>
                   T.gen(function* (_) {
-                    const [a, p] = yield* _(Q.take(queue))
-
+                    const all = yield* _(Q.takeAll(queue))
                     const { host, port } = yield* _(cluster.memberHostPort(leader))
 
                     const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/${id}`
 
-                    yield* _(
-                      pipe(
-                        cluster.ask(recipient)(a),
-                        T.onExit((x) =>
-                          T.succeedWith(() => {
-                            if (x._tag === "Failure") {
-                              console.log(pretty(x.cause))
-                            }
-                          })
-                        ),
-                        T.to(p)
-                      )
-                    )
+                    for (const [a, p] of all) {
+                      yield* _(pipe(cluster.ask(recipient)(a), T.to(p)))
+                    }
+
+                    if (all.length === 0) {
+                      yield* _(T.sleep(5))
+                    }
                   })["|>"](T.forever)
               ),
+              T.race(cli.monitor),
               T.forkManaged
             )
           )

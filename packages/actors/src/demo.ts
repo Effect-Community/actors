@@ -47,7 +47,6 @@ const statefulHandler = AC.stateful(
     Reset: (_) => _.return(0),
     Increase: (_) => _.return(state + 1),
     Get: (_) => {
-      console.log("HERE")
       return _.return(state, state)
     },
     GetAndReset: (_) =>
@@ -64,13 +63,21 @@ const ProcessA = Cluster.makeSingleton("process-a")(statefulHandler, T.succeed(0
 pipe(
   T.gen(function* (_) {
     const actor = yield* _(ProcessA.actor)
+    let m = 0
 
     while (1) {
-      yield* _(T.sleep(1000))
-      console.log(yield* _(actor.ask(new Get())))
+      yield* _(T.sleep(1_000))
+      console.log(yield* _(actor.ask(new Get())), m++)
       yield* _(actor.tell(new Increase()))
     }
-  }),
+  })["|>"](
+    T.race(
+      T.gen(function* (_) {
+        const cli = yield* _(Z.KeeperClient)
+        yield* _(cli.monitor)
+      })
+    )
+  ),
   T.provideSomeLayer(AppLayer[">+>"](ProcessA.Live)),
   R.runMain
 )

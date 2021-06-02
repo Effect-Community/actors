@@ -189,7 +189,7 @@ export const makeKeeperClient = M.gen(function* (_) {
     client,
     create,
     mkdir,
-    monitor,
+    monitor: P.await(monitor),
     waitDelete,
     remove,
     getData,
