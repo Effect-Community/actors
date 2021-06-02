@@ -77,12 +77,12 @@ const Users = Sharded.makeDistributed(
   (_) => `users-${_.id}`
 )
 
-describe("Persistent", () => {
+describe("Distributed", () => {
   const { it } = pipe(
     J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](Users.Live)))
   )
 
-  it("persistent", () =>
+  it("distributed", () =>
     T.gen(function* (_) {
       const users = yield* _(Users.actor)
       expect(yield* _(users.ask(new Get({ id: "mike" })))).equals(new UserNotFound({}))
