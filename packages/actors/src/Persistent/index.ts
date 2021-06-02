@@ -170,7 +170,8 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
 
     const process = (
       msg: PendingMessage<F1>,
-      initial: S
+      initial: S,
+      ref: REF.Ref<O.Option<S>>
     ): T.RIO<R & HasClock & Has<StateStorageAdapter>, void> => {
       return T.accessServicesM({ prov: StateStorageAdapter })(({ prov }) =>
         prov.transaction(
@@ -181,7 +182,14 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
               pipe(
                 T.do,
                 T.bind("s", () =>
-                  self.getState(initial, context.actorSystem, actorName)
+                  pipe(
+                    REF.get(ref),
+                    T.chain((ms) =>
+                      O.isSome(ms)
+                        ? T.succeed(ms.value)
+                        : self.getState(initial, context.actorSystem, actorName)
+                    )
+                  )
                 ),
                 T.let("fa", () => msg[0]),
                 T.let("promise", () => msg[1]),
@@ -201,6 +209,7 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
                     ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
                       pipe(
                         self.setState(s, actorName),
+                        T.zipRight(REF.set_(ref, O.some(s))),
                         T.zipRight(P.succeed_(_.promise, a)),
                         T.as(T.unit)
                       )
@@ -229,10 +238,11 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
         T.do,
         T.bind("state", () => REF.makeRef(initial)),
         T.bind("queue", () => Q.makeBounded<PendingMessage<F1>>(mailboxSize)),
+        T.bind("ref", () => REF.makeRef(O.emptyOf<S>())),
         T.tap((_) =>
           pipe(
             Q.take(_.queue),
-            T.chain((t) => process(t, initial)),
+            T.chain((t) => process(t, initial, _.ref)),
             T.forever,
             T.fork
           )
