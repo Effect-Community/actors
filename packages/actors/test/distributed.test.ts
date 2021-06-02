@@ -8,19 +8,18 @@ import * as S from "@effect-ts/schema"
 import { matchTag, matchTag_ } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
-import * as ClusterConfigSym from "../src/ClusterConfig"
+import * as ClusterConfig from "../src/ClusterConfig"
 import * as D from "../src/Distributed"
 import * as AM from "../src/Message"
 import { LiveStateStorageAdapter, transactional } from "../src/Persistent"
-import { TestPG } from "./pg"
+import { TestPG as TestPGConfig } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
-const AppLayer = L.all(
-  Z.LiveKeeperClient["<<<"](TestKeeperConfig),
-  TestPG[">>>"](PG.LivePG)[">+>"](LiveStateStorageAdapter)
-)[">+>"](
-  Cluster.LiveCluster["<<<"](
-    ClusterConfigSym.StaticClusterConfig({
+const AppLayer = Cluster.LiveCluster["<+<"](
+  L.all(
+    Z.LiveKeeperClient["<<<"](TestKeeperConfig),
+    LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPGConfig)),
+    ClusterConfig.StaticClusterConfig({
       sysName: "EffectTsActorsDemo",
       host: "127.0.0.1",
       port: 34322
