@@ -29,28 +29,19 @@ const AppLayer = L.all(
 
 const unit = S.unknown["|>"](S.brand<void>())
 
-class Reset extends AM.Message("Reset", S.props({}), unit) {}
 class Increase extends AM.Message("Increase", S.props({}), unit) {}
 class Get extends AM.Message("Get", S.props({}), S.number) {}
-class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
-const Message = AM.messages(Reset, Increase, Get, GetAndReset)
+const Message = AM.messages(Get, Increase)
 type Message = AM.TypeOf<typeof Message>
 
 const statefulHandler = transactional(
   Message,
   S.number
-)((state, ctx) =>
+)((state) =>
   matchTag({
-    Reset: (_) => _.return(0),
     Increase: (_) => _.return(state + 1),
-    Get: (_) => _.return(state, state),
-    GetAndReset: (_) =>
-      pipe(
-        ctx.self,
-        T.chain((self) => self.tell(new Reset())),
-        T.zipRight(_.return(state, state))
-      )
+    Get: (_) => _.return(state, state)
   })
 )
 
