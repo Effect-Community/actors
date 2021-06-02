@@ -119,20 +119,30 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                                 }
                               } else {
                                 // there is no leader, attempt to self elect
-                                yield* _(
-                                  cli.create(`${membersDir}/${cluster.nodeId}`, {
-                                    mode: "EPHEMERAL"
+                                const selfNode = yield* _(
+                                  cli.create(`${membersDir}/worker_`, {
+                                    mode: "EPHEMERAL_SEQUENTIAL",
+                                    data: Buffer.from(cluster.nodeId)
                                   })
                                 )
                                 const leader = yield* _(
                                   pipe(cli.getChildren(membersDir), T.map(Chunk.head))
                                 )
+
                                 // this should never be the case
                                 if (O.isNone(leader)) {
                                   yield* _(T.die("cannot elect a leader"))
                                 } else {
+                                  const leaderMember = yield* _(
+                                    cli.getData(`${membersDir}/${leader.value}`)
+                                  )
+                                  if (O.isNone(leaderMember)) {
+                                    return yield* _(T.die("bug, cannot read data"))
+                                  }
+                                  const leaderMemberId =
+                                    leaderMember.value.toString("utf8")
                                   // we got the leadership
-                                  if (leader.value === cluster.nodeId) {
+                                  if (leaderMemberId === cluster.nodeId) {
                                     const running = yield* _(
                                       system.make(
                                         `sharded/leader/${id}`,
@@ -150,12 +160,10 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                                     yield* _(running.ask(a)["|>"](T.to(p)))
                                   } else {
                                     // someone else got the leadership first
-                                    yield* _(
-                                      cli.remove(`${membersDir}/${cluster.nodeId}`)
-                                    )
+                                    yield* _(cli.remove(selfNode))
 
                                     const { host, port } = yield* _(
-                                      cluster.memberHostPort(leader.value)
+                                      cluster.memberHostPort(leaderMemberId)
                                     )
                                     const recipient = `zio://${system.actorSystemName}@${host}:${port}/sharded/proxy/${id}`
                                     yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))

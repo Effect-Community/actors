@@ -279,7 +279,14 @@ export const makeCluster = M.gen(function* (_) {
       return T.gen(function* (_) {
         while (1) {
           const leader = yield* _(leaderId(scope))
-          if (leader === nodeId) {
+          const nodeMapped = yield* _(
+            pipe(
+              cli.getData(`${scope}/${leader}`),
+              T.chain((data) => T.getOrFail(data)["|>"](T.orDie)),
+              T.map((data) => data.toString("utf8"))
+            )
+          )
+          if (nodeMapped === nodeId) {
             yield* _(onLeader)
           } else {
             yield* _(
@@ -356,7 +363,10 @@ export const makeSingleton =
 
           yield* _(
             pipe(
-              cli.create(`${membersDir}/${cluster.nodeId}`, { mode: "EPHEMERAL" }),
+              cli.create(`${membersDir}/worker_`, {
+                mode: "EPHEMERAL_SEQUENTIAL",
+                data: Buffer.from(cluster.nodeId)
+              }),
               M.make((p) => cli.remove(p)["|>"](T.orDie))
             )
           )
