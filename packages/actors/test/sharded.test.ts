@@ -95,5 +95,15 @@ describe("Persistent", () => {
       expect(yield* _(users.ask(new Get({ id: "mike-2" })))).equals(
         new UserNotFound({})
       )
+      expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
+        {
+          actor_name: "EffectTsActorsDemo(/sharded/leader/users-mike)",
+          state: '{"state":{"_tag":"User","id":"mike"}}'
+        },
+        {
+          actor_name: "EffectTsActorsDemo(/sharded/leader/users-mike-2)",
+          state: '{"state":{"_tag":"Initial"}}'
+        }
+      ])
     }))
 })
