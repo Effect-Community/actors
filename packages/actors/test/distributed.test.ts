@@ -5,7 +5,7 @@ import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
-import { matchTag } from "@effect-ts/system/Utils"
+import { matchTag, matchTag_ } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
 import * as ClusterConfigSym from "../src/ClusterConfig"
@@ -61,7 +61,10 @@ const userHandler = transactional(
 )((state) =>
   matchTag({
     Get: (_) => {
-      return _.return(state, state._tag === "Initial" ? new UserNotFound({}) : state)
+      return _.return(
+        state,
+        matchTag_(state, { Initial: () => new UserNotFound({}), User: (_) => _ })
+      )
     },
     Create: (_) => {
       const user = new User({ id: _.payload.id })

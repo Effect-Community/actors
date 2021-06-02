@@ -33,7 +33,7 @@
     "@babel/cli": "^7.14.3",
     "@babel/core": "^7.14.3",
     "@effect-ts/build-utils": "^0.20.0",
-    "@effect-ts/core": "^0.40.0",
+    "@effect-ts/core": "^0.40.1",
     "@effect-ts/express": "^0.20.0",
     "@effect-ts/jest": "^0.28.0",
     "@effect-ts/node": "^0.26.0",
