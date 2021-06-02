@@ -321,9 +321,10 @@ export interface Singleton<ID extends string, F1 extends AM.AnyMessage> {
 
 export const makeSingleton =
   <ID extends string>(id: ID) =>
-  <R, R2, E2, S, F1 extends AM.AnyMessage>(
+  <R, R2, E2, S, F1 extends AM.AnyMessage, R3, E3>(
     stateful: A.AbstractStateful<R, S, F1>,
-    init: T.Effect<R2, E2, S>
+    init: T.Effect<R2, E2, S>,
+    side: (self: ActorRef<F1>) => T.Effect<R3, E3, never>
   ) => {
     const tag_ = tag<Singleton<ID, F1>>()
     return {
@@ -352,46 +353,6 @@ export const makeSingleton =
           const leader = pipe(cli.getChildren(membersDir), T.map(Chunk.head))
 
           const queue = yield* _(Q.makeUnbounded<A.PendingMessage<F1>>())
-
-          yield* _(
-            pipe(
-              cluster.runOnLeader(membersDir)(
-                M.gen(function* (_) {
-                  const state = yield* _(init)
-                  const ref: ActorRef<F1> = yield* _(
-                    system.make(`singleton/leader/${id}`, SUP.none, state, stateful)
-                  )
-
-                  return yield* _(
-                    M.fromEffect(
-                      T.gen(function* (_) {
-                        const [a, p] = yield* _(Q.take(queue))
-
-                        yield* _(ref.ask(a)["|>"](T.to(p)))
-                      })["|>"](T.forever)
-                    )
-                  )
-                })["|>"](M.useNow),
-                (leader) =>
-                  T.gen(function* (_) {
-                    const all = yield* _(Q.takeAll(queue))
-                    const { host, port } = yield* _(cluster.memberHostPort(leader))
-
-                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/proxy/${id}`
-
-                    for (const [a, p] of all) {
-                      yield* _(pipe(cluster.ask(recipient)(a), T.to(p)))
-                    }
-
-                    if (all.length === 0) {
-                      yield* _(T.sleep(5))
-                    }
-                  })["|>"](T.forever)
-              ),
-              T.race(cli.monitor),
-              T.forkManaged
-            )
-          )
 
           const ask = <A extends F1>(fa: A) => {
             return pipe(
@@ -425,6 +386,48 @@ export const makeSingleton =
                 )
               ),
               T.overrideForkScope(scope.scope)
+            )
+          )
+
+          yield* _(
+            pipe(
+              cluster.runOnLeader(membersDir)(
+                M.gen(function* (_) {
+                  const state = yield* _(init)
+                  const ref: ActorRef<F1> = yield* _(
+                    system.make(`singleton/leader/${id}`, SUP.none, state, stateful)
+                  )
+
+                  return yield* _(
+                    M.fromEffect(
+                      T.gen(function* (_) {
+                        const [a, p] = yield* _(Q.take(queue))
+
+                        yield* _(ref.ask(a)["|>"](T.to(p)))
+                      })["|>"](T.forever)
+                    )
+                  )
+                })
+                  ["|>"](M.useNow)
+                  ["|>"](T.race(side(actor))),
+                (leader) =>
+                  T.gen(function* (_) {
+                    const all = yield* _(Q.takeAll(queue))
+                    const { host, port } = yield* _(cluster.memberHostPort(leader))
+
+                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/proxy/${id}`
+
+                    for (const [a, p] of all) {
+                      yield* _(pipe(cluster.ask(recipient)(a), T.to(p)))
+                    }
+
+                    if (all.length === 0) {
+                      yield* _(T.sleep(5))
+                    }
+                  })["|>"](T.forever)
+              ),
+              T.race(cli.monitor),
+              T.forkManaged
             )
           )
 

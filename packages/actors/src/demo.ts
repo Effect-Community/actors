@@ -58,7 +58,11 @@ const statefulHandler = AC.stateful(
   })
 )
 
-const ProcessA = Cluster.makeSingleton("process-a")(statefulHandler, T.succeed(0))
+const ProcessA = Cluster.makeSingleton("process-a")(
+  statefulHandler,
+  T.succeed(0),
+  () => T.never
+)
 
 pipe(
   T.gen(function* (_) {
