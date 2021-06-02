@@ -53,13 +53,13 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
           )
         )
 
-        const sharded = yield* _(
+        const distributed = yield* _(
           pipe(
             system.make(
-              `sharded/proxy/${name}`,
+              `distributed/proxy/${name}`,
               SUP.none,
               {},
-              new ShardProxy(name, messageToId, stateful.messages, (queue) =>
+              new DistributedProxy(name, messageToId, stateful.messages, (queue) =>
                 T.gen(function* (_) {
                   while (1) {
                     const all = yield* _(Q.takeBetween_(queue, 1, 100))
@@ -85,7 +85,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                               // we have the actor running
                               yield* _(isRunning.value.ask(a)["|>"](T.to(p)))
                             } else {
-                              const membersDir = `${cluster.clusterDir}/sharded/${name}/${id}/members`
+                              const membersDir = `${cluster.clusterDir}/distributed/${name}/${id}/members`
 
                               yield* _(cli.mkdir(membersDir))
 
@@ -99,7 +99,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                                 if (leader.value === cluster.nodeId) {
                                   const running = yield* _(
                                     system.make(
-                                      `sharded/leader/${id}`,
+                                      `distributed/leader/${id}`,
                                       SUP.none,
                                       init,
                                       stateful
@@ -114,7 +114,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                                   const { host, port } = yield* _(
                                     cluster.memberHostPort(leader.value)
                                   )
-                                  const recipient = `zio://${system.actorSystemName}@${host}:${port}/sharded/proxy/${id}`
+                                  const recipient = `zio://${system.actorSystemName}@${host}:${port}/distributed/proxy/${id}`
                                   yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
                                 }
                               } else {
@@ -145,7 +145,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                                   if (leaderMemberId === cluster.nodeId) {
                                     const running = yield* _(
                                       system.make(
-                                        `sharded/leader/${id}`,
+                                        `distributed/leader/${id}`,
                                         SUP.none,
                                         init,
                                         stateful
@@ -165,7 +165,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
                                     const { host, port } = yield* _(
                                       cluster.memberHostPort(leaderMemberId)
                                     )
-                                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/sharded/proxy/${id}`
+                                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/distributed/proxy/${id}`
                                     yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
                                   }
                                 }
@@ -188,7 +188,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
         return yield* _(
           T.succeed(
             identity<Distributed<N, F1>>({
-              actor: sharded,
+              actor: distributed,
               messageToId,
               name
             })
@@ -199,7 +199,7 @@ export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage
   }
 }
 
-export class ShardProxy<
+export class DistributedProxy<
   N extends string,
   ID extends string,
   R,
@@ -218,7 +218,7 @@ export class ShardProxy<
     super()
   }
 
-  defaultMailboxSize = 10000
+  defaultMailboxSize = 10_000
 
   makeActor(
     supervisor: SUP.Supervisor<R>,

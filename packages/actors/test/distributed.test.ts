@@ -9,7 +9,7 @@ import { matchTag } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
 import * as ClusterConfigSym from "../src/ClusterConfig"
-import * as Sharded from "../src/Distributed"
+import * as D from "../src/Distributed"
 import * as AM from "../src/Message"
 import { LiveStateStorageAdapter, transactional } from "../src/Persistent"
 import { TestPG } from "./pg"
@@ -70,7 +70,7 @@ const userHandler = transactional(
   })
 )
 
-const Users = Sharded.makeDistributed(
+const Users = D.makeDistributed(
   "users",
   userHandler,
   new Initial({}),
@@ -97,11 +97,11 @@ describe("Distributed", () => {
       )
       expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
         {
-          actor_name: "EffectTsActorsDemo(/sharded/leader/users-mike)",
+          actor_name: "EffectTsActorsDemo(/distributed/leader/users-mike)",
           state: '{"state":{"_tag":"User","id":"mike"}}'
         },
         {
-          actor_name: "EffectTsActorsDemo(/sharded/leader/users-mike-2)",
+          actor_name: "EffectTsActorsDemo(/distributed/leader/users-mike-2)",
           state: '{"state":{"_tag":"Initial"}}'
         }
       ])
