@@ -1,5 +1,6 @@
 import { Chunk } from "@effect-ts/core"
 import * as T from "@effect-ts/core/Effect"
+import * as Sh from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
@@ -7,6 +8,7 @@ import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
+import type { ActorRef } from "../src/ActorRef"
 import { actorRef } from "../src/ActorRef"
 import * as Cluster from "../src/Cluster"
 import * as ClusterConfigSym from "../src/ClusterConfig"
@@ -45,22 +47,51 @@ class Subscribe extends AM.Message(
   unit
 ) {}
 
-const HubMessages = AM.messages(Subscribe)
+class Publish extends AM.Message(
+  "Publish",
+  S.props({ message: S.prop(S.string) }),
+  unit
+) {}
+
+const HubMessages = AM.messages(Subscribe, Publish)
 
 const hub = AC.stateful(
   HubMessages,
-  unit
+  S.props({
+    subscribed: S.prop(S.chunk(actorRef(SubscriberMessages)))
+  })
 )((s) =>
   matchTag({
     Subscribe: ({ payload: { recipient } }, msg) =>
       T.gen(function* (_) {
         yield* _(recipient.ask(new SendMessage({ message: "it works" })))
+        return yield* _(
+          msg.return({ subscribed: Chunk.append_(s.subscribed, recipient) })
+        )
+      }),
+    Publish: ({ payload: { message } }, msg) =>
+      T.gen(function* (_) {
+        yield* _(
+          T.forEach_(s.subscribed, (recipient) =>
+            recipient.ask(new SendMessage({ message }))
+          )
+        )
         return yield* _(msg.return(s))
       })
   })
 )
 
-const Hub = Cluster.makeSingleton("hub")(hub, T.unit, () => T.never)
+const Hub = Cluster.makeSingleton("hub")(
+  hub,
+  T.succeed({ subscribed: Chunk.empty<ActorRef<SendMessage | GetMessages>>() }),
+  (self) =>
+    T.gen(function* (_) {
+      yield* _(
+        T.repeat_(self.ask(new Publish({ message: "tick" })), Sh.windowed(1_000))
+      )
+      return yield* _(T.never)
+    })
+)
 
 const sub = AC.stateful(
   SubscriberMessages,
@@ -85,6 +116,12 @@ describe("Messaging", () => {
 
       expect((yield* _(Sub.ask(new GetMessages()))).messages).equals(
         Chunk.single("it works")
+      )
+
+      yield* _(J.adjust(5_000))
+
+      expect((yield* _(Sub.ask(new GetMessages()))).messages).equals(
+        Chunk.many("it works", "tick", "tick", "tick", "tick", "tick", "tick")
       )
     }))
 })
