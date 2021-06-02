@@ -79,7 +79,7 @@ export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<F1>>
 }
 
-type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {
+export type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: {
     _tag: Tag
     payload: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
@@ -90,7 +90,7 @@ type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {
   }
 }[AM.TagsOf<F1>]
 
-type StatefulResponse<S, F1 extends AM.AnyMessage> = {
+export type StatefulResponse<S, F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: readonly [S, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>]
 }[AM.TagsOf<F1>]
 

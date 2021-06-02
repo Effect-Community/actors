@@ -36,6 +36,7 @@
     "@effect-ts/core": "^0.40.0"
   },
   "dependencies": {
-    "@effect-ts/keeper": "^0.0.0"
+    "@effect-ts/keeper": "^0.0.0",
+    "@effect-ts/pg": "^0.0.0"
   }
 }

@@ -21,6 +21,7 @@ jobs:
           yarn
           docker pull cristianrgreco/ryuk:0.4.0
           docker pull zookeeper:3.7.0
+          docker pull postgres:alpine
           yarn run ci
         env:
           CI: "true"
