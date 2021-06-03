@@ -10,7 +10,7 @@ import { matchTag } from "@effect-ts/system/Utils"
 import * as Cluster from "../src/Cluster"
 import * as ClusterConfigSym from "../src/ClusterConfig"
 import * as AM from "../src/Message"
-import { LiveStateStorageAdapter, transactional } from "../src/Persistent"
+import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 import { TestPG } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 

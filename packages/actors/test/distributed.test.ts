@@ -11,7 +11,7 @@ import * as Cluster from "../src/Cluster"
 import * as ClusterConfig from "../src/ClusterConfig"
 import * as D from "../src/Distributed"
 import * as AM from "../src/Message"
-import { LiveStateStorageAdapter, transactional } from "../src/Persistent"
+import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 import { TestPG as TestPGConfig } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
