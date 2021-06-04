@@ -1,5 +1,7 @@
+import * as HM from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
+import * as Ref from "@effect-ts/core/Effect/Ref"
 import { pipe } from "@effect-ts/core/Function"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
@@ -105,5 +107,13 @@ describe("Distributed", () => {
           state: '{"state":{"_tag":"Initial"}}'
         }
       ])
+      const { runningMapRef } = yield* _(Users.Tag)
+      expect(HM.size(yield* _(Ref.get(runningMapRef)))).toEqual(2)
+      yield* _(J.adjust(120_000))
+      expect(HM.size(yield* _(Ref.get(runningMapRef)))).toEqual(0)
+      expect(yield* _(users.ask(new Get({ id: "mike" })))).equals(
+        new User({ id: "mike" })
+      )
+      expect(HM.size(yield* _(Ref.get(runningMapRef)))).toEqual(1)
     }))
 })
