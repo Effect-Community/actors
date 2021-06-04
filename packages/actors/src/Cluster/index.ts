@@ -35,7 +35,7 @@ import * as Envelope from "../Envelope"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
-const EO = pipe(OT.monad(T.Monad), (M) => ({
+export const EO = pipe(OT.monad(T.Monad), (M) => ({
   map: M.map,
   chain: chainF(M),
   chainT:
