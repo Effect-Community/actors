@@ -1,7 +1,6 @@
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
-import { pipe } from "@effect-ts/core/Function"
 import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
@@ -95,7 +94,7 @@ export const UsersService = tag<UsersService>()
 export const LiveUsersService = L.fromManaged(UsersService)(makeUsersService)
 
 describe("Distributed", () => {
-  const { it } = pipe(J.runtime((Env) => Env[">+>"](AppLayer)[">+>"](LiveUsersService)))
+  const { it } = J.runtime((Env) => Env[">+>"](AppLayer)[">+>"](LiveUsersService))
 
   it("distributed", () =>
     T.gen(function* (_) {
