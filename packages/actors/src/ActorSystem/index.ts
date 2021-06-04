@@ -57,8 +57,8 @@ export class Context<FC extends AM.AnyMessage> {
   make<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
     sup: SUP.Supervisor<R>,
-    init: S,
-    stateful: A.Stateful<R, S, F1>
+    stateful: A.AbstractStateful<R, S, F1>,
+    init: S
   ): T.Effect<
     R & HasClock,
     ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
@@ -66,7 +66,7 @@ export class Context<FC extends AM.AnyMessage> {
   > {
     return pipe(
       T.do,
-      T.bind("actorRef", () => this.actorSystem.make(actorName, sup, init, stateful)),
+      T.bind("actorRef", () => this.actorSystem.make(actorName, sup, stateful, init)),
       T.bind("children", () => REF.get(this.childrenRef)),
       T.tap((_) => REF.set_(this.childrenRef, HS.add_(_.children, _.actorRef))),
       T.map((_) => _.actorRef)
@@ -120,8 +120,8 @@ export class ActorSystem {
   make<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
     sup: SUP.Supervisor<R>,
-    init: S,
-    stateful: A.AbstractStateful<R, S, F1>
+    stateful: A.AbstractStateful<R, S, F1>,
+    init: S
   ): T.Effect<
     R & HasClock,
     ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
@@ -201,7 +201,7 @@ export class ActorSystem {
         buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
       ),
       T.chain((_) => this.lookup(AA.address(_.path, stateful.messages))),
-      T.chain(O.fold(() => this.make(actorName, sup, init, stateful), T.succeed))
+      T.chain(O.fold(() => this.make(actorName, sup, stateful, init), T.succeed))
     )
   }
 

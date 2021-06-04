@@ -1,87 +1,117 @@
-import "@effect-ts/core/Tracing/Enable"
-import "isomorphic-fetch"
-
 import * as T from "@effect-ts/core/Effect"
+import { pretty } from "@effect-ts/core/Effect/Cause"
 import * as L from "@effect-ts/core/Effect/Layer"
+import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
+import type { _A } from "@effect-ts/core/Utils"
 import * as Z from "@effect-ts/keeper"
-import * as R from "@effect-ts/node/Runtime"
+import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
-import { matchTag } from "@effect-ts/system/Utils"
+import { tag } from "@effect-ts/system/Has"
+import { matchTag, matchTag_ } from "@effect-ts/system/Utils"
 
-import * as AC from "./Actor"
+import { TestPG as TestPGConfig } from "../test/pg"
+import { TestKeeperConfig } from "../test/zookeeper"
+import { ActorSystemTag } from "./ActorSystem"
 import * as Cluster from "./Cluster"
-import * as ClusterConfigSym from "./ClusterConfig"
+import * as ClusterConfig from "./ClusterConfig"
+import * as D from "./Distributed"
 import * as AM from "./Message"
+import * as SUP from "./Supervisor"
+import { LiveStateStorageAdapter, transactional } from "./Transactional"
 
-const AppLayer = Z.LiveKeeperClient["<<<"](
-  L.fromEffect(Z.KeeperConfig)(
-    T.succeedWith(() => Z.makeKeeperConfig({ connectionString: "127.0.0.1:2181" }))
-  )
-)[">+>"](
-  Cluster.LiveCluster["<<<"](
-    ClusterConfigSym.StaticClusterConfig({
+const AppLayer = Cluster.LiveCluster["<+<"](
+  L.all(
+    Z.LiveKeeperClient["<<<"](TestKeeperConfig),
+    LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPGConfig)),
+    ClusterConfig.StaticClusterConfig({
       sysName: "EffectTsActorsDemo",
       host: "127.0.0.1",
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      port: parseInt(process.env["CLUSTER_PORT"]!)
+      port: 34322
     })
   )
 )
 
-const unit = S.unknown["|>"](S.brand<void>())
+class User extends S.Model<User>()(
+  S.props({ _tag: S.prop(S.literal("User")), id: S.prop(S.string) })
+) {}
 
-class Reset extends AM.Message("Reset", S.props({}), unit) {}
-class Increase extends AM.Message("Increase", S.props({}), unit) {}
-class Get extends AM.Message("Get", S.props({}), S.number) {}
-class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
+class UserNotFound extends S.Model<UserNotFound>()(
+  S.props({ _tag: S.prop(S.literal("UserNotFound")) })
+) {}
 
-const Message = AM.messages(Reset, Increase, Get, GetAndReset)
+class Get extends AM.Message(
+  "Get",
+  S.props({ id: S.prop(S.string) }),
+  S.union({ User, UserNotFound })
+) {}
+
+class Create extends AM.Message(
+  "Create",
+  S.props({ id: S.prop(S.string) }),
+  S.union({ User })
+) {}
+
+const Message = AM.messages(Get, Create)
 type Message = AM.TypeOf<typeof Message>
 
-const statefulHandler = AC.stateful(
-  Message,
-  S.number
-)((state, ctx) =>
-  matchTag({
-    Reset: (_) => _.return(0),
-    Increase: (_) => _.return(state + 1),
-    Get: (_) => {
-      return _.return(state, state)
-    },
-    GetAndReset: (_) =>
-      pipe(
-        ctx.self,
-        T.chain((self) => self.tell(new Reset())),
-        T.zipRight(_.return(state, state))
-      )
-  })
+class Initial extends S.Model<Initial>()(
+  S.props({ _tag: S.prop(S.literal("Initial")) })
+) {}
+
+const usersHandler = D.distributed(
+  transactional(
+    Message,
+    S.union({ Initial, User })
+  )((state) =>
+    matchTag({
+      Get: (_) => {
+        return _.return(
+          state,
+          matchTag_(state, { Initial: () => new UserNotFound({}), User: (_) => _ })
+        )
+      },
+      Create: (_) => {
+        const user = new User({ id: _.payload.id })
+        return _.return(user, user)
+      }
+    })
+  ),
+  ({ id }) => id,
+  { passivateAfter: 1_000 }
 )
 
-const ProcessA = Cluster.makeSingleton("process-a")(
-  statefulHandler,
-  T.succeed(0),
-  () => T.never
-)
+export const makeUsersService = M.gen(function* (_) {
+  const system = yield* _(ActorSystemTag)
+
+  const users = yield* _(system.make("users", SUP.none, usersHandler, new Initial({})))
+
+  return {
+    users
+  }
+})
+
+export interface UsersService extends _A<typeof makeUsersService> {}
+export const UsersService = tag<UsersService>()
+export const LiveUsersService = L.fromManaged(UsersService)(makeUsersService)
+
+const program = T.gen(function* (_) {
+  const { users } = yield* _(UsersService)
+  console.log(yield* _(users.ask(new Get({ id: "mike" }))))
+  console.log(yield* _(users.ask(new Create({ id: "mike" }))))
+  console.log(yield* _(users.ask(new Get({ id: "mike" }))))
+  console.log(yield* _(users.ask(new Get({ id: "mike-2" }))))
+  console.log((yield* _(PG.query("SELECT * FROM state_journal"))).rows)
+
+  yield* _(T.sleep(2_000))
+})
 
 pipe(
-  T.gen(function* (_) {
-    const actor = yield* _(ProcessA.actor)
-    let m = 0
-
-    while (1) {
-      yield* _(T.sleep(1_000))
-      console.log(yield* _(actor.ask(new Get())), m++)
-      yield* _(actor.tell(new Increase()))
-    }
-  })["|>"](
-    T.race(
-      T.gen(function* (_) {
-        const cli = yield* _(Z.KeeperClient)
-        yield* _(cli.monitor)
-      })
-    )
-  ),
-  T.provideSomeLayer(AppLayer[">+>"](ProcessA.Live)),
-  R.runMain
-)
+  program,
+  T.provideSomeLayer(AppLayer[">+>"](LiveUsersService)),
+  T.runPromiseExit
+).then((ex) => {
+  if (ex._tag === "Failure") {
+    console.error(pretty(ex.cause))
+  }
+})

@@ -58,7 +58,7 @@ export interface MessageRegistry<F1>
 
 export type InstanceOf<A> = [A] extends [{ new (...any: any[]): infer B }] ? B : never
 
-interface MessageFactory<
+export interface MessageFactory<
   Tag extends string,
   Req extends S.SchemaUPI,
   Res extends S.SchemaUPI
@@ -71,6 +71,7 @@ interface MessageFactory<
     _: IsEqualTo<S.ParsedShapeOf<Req>, {}> extends true ? void : S.ParsedShapeOf<Req>
   ): TypedMessage<Tag, Req, Res>
 }
+
 export type AnyMessageFactory = MessageFactory<any, S.SchemaAny, S.SchemaAny>
 
 export type TypeOf<A extends MessageRegistry<any>> = [A] extends [

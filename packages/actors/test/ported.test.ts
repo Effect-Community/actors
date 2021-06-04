@@ -86,7 +86,7 @@ describe("Actor", () => {
     pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, handler)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, handler, 0)),
       T.tap((_) => _.actor.tell(new Increase())),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
@@ -104,7 +104,7 @@ describe("Actor", () => {
     pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, esHandler)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, esHandler, 0)),
       T.tap((_) => _.actor.tell(new Increase())),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
@@ -123,7 +123,7 @@ describe("Actor", () => {
     pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, handler)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, handler, 0)),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new GetAndReset())),
       T.bind("c2", (_) => _.actor.ask(new Get())),
@@ -139,7 +139,7 @@ describe("Actor", () => {
     pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
-      T.tap((_) => _.system.make("actor1", SUP.none, 0, handler)),
+      T.tap((_) => _.system.make("actor1", SUP.none, handler, 0)),
       T.bind("actor", (_) =>
         _.system.select(AA.address("zio://test1@0.0.0.0:0000/actor1", Message))
       ),
@@ -156,12 +156,12 @@ describe("Actor", () => {
     pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, esHandler)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, esHandler, 0)),
       T.tap((_) => _.actor.tell(new Increase())),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
       T.bind("system2", () => AS.make("test1", O.none)),
-      T.bind("actor2", (_) => _.system2.make("actor1", SUP.none, 0, esHandler)),
+      T.bind("actor2", (_) => _.system2.make("actor1", SUP.none, esHandler, 0)),
       T.bind("c2", (_) => _.actor2.ask(new Get())),
       T.provideServiceM(J.JournalFactory)(J.makeInMemJournal),
       T.tap((result) =>
@@ -197,7 +197,7 @@ describe("Actor", () => {
       T.let("schedule", (_) => SE.recurs(10)),
       T.let("policy", (_) => SUP.retry(_.schedule)),
       T.bind("system", () => AS.make("test2", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", _.policy, 0, tickHandler(_.ref))),
+      T.bind("actor", (_) => _.system.make("actor1", _.policy, tickHandler(_.ref), 0)),
       T.tap((_) => _.actor.ask(new Tick())),
       T.bind("c1", (_) => REF.get(_.ref)),
       T.tap((result) =>
@@ -214,7 +214,7 @@ describe("Actor", () => {
     pipe(
       T.do,
       T.bind("system", () => AS.make("test1", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", SUP.none, 0, handler)),
+      T.bind("actor", (_) => _.system.make("actor1", SUP.none, handler, 0)),
       T.bind("address", (_) => _.actor.path),
       T.tap((_) =>
         _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Increase" }), _.address.path))

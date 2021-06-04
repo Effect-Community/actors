@@ -378,10 +378,10 @@
   resolved "https://registry.yarnpkg.com/@effect-ts/express/-/express-0.20.0.tgz#fa62ba776f0eb40fbaa6c64d3f67ca6721885461"
   integrity sha512-rwaDw8LANP+I/0pN073DbcRW5d/tYEfVH9bNSr7ipI/30A/sZ14/gStHu0X0ryFNmsmq0/M706boVAgYE2svog==
 
-"@effect-ts/jest@^0.28.0":
-  version "0.28.0"
-  resolved "https://registry.yarnpkg.com/@effect-ts/jest/-/jest-0.28.0.tgz#a41708742f6636441b1d07c409e63141f54de820"
-  integrity sha512-MBQjwj3vLL1H96h6VmsaoH/C01Aab50PCl+SvniBAMBxo7iF+mg4ozrTXRCQF+BPf847/0h3Q5luiJZTq8zD0w==
+"@effect-ts/jest@^0.28.3":
+  version "0.28.3"
+  resolved "https://registry.yarnpkg.com/@effect-ts/jest/-/jest-0.28.3.tgz#978d243ebb6d1a7ea0f6b82db063cbb61c02aaa2"
+  integrity sha512-uM1BpIQQCmmgon1IxiAHR71F5GS/CO2Q50xGp22bhSuTqlyC/wc215WyU1ddN0E8Br4jv/NxTnRN9fZJ0n2V2g==
 
 "@effect-ts/node@^0.26.0":
   version "0.26.0"

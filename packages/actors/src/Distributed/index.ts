@@ -2,17 +2,13 @@ import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as HashMap from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as T from "@effect-ts/core/Effect"
 import * as Clock from "@effect-ts/core/Effect/Clock"
-import type { Exit } from "@effect-ts/core/Effect/Exit"
-import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
 import * as Sh from "@effect-ts/core/Effect/Schedule"
-import * as Scope from "@effect-ts/core/Effect/Scope"
 import * as STM from "@effect-ts/core/Effect/Transactional/STM"
 import * as TRef from "@effect-ts/core/Effect/Transactional/TRef"
-import { identity, pipe } from "@effect-ts/core/Function"
-import { tag } from "@effect-ts/core/Has"
+import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import { KeeperClient } from "@effect-ts/keeper"
 
@@ -240,159 +236,117 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
   })
 }
 
-export const makeDistributed = <N extends string, R, S, F1 extends AM.AnyMessage>(
-  name: N,
+export const distributed = <R, S, F1 extends AM.AnyMessage>(
   stateful: A.AbstractStateful<R, S, F1>,
-  init: S,
-  messageToId: (_: { name: N; message: F1 }) => string,
+  messageToId: (_: F1) => string,
   opts?: {
     passivateAfter?: number
   }
-) => {
-  const tag_ = tag<Distributed<N, F1>>()
-  return {
-    Tag: tag_,
-    actor: T.accessService(tag_)((_) => _.actor),
-    Live: L.fromManaged(tag_)(
+) =>
+  new A.ActorProxy(stateful.messages, (queue, context, initial: S) =>
+    M.useNow(
       M.gen(function* (_) {
-        const system = yield* _(AS.ActorSystemTag)
-
         const factory = yield* _(
-          runner(opts?.passivateAfter ?? 60_000, (id) =>
-            system.make(id, SUP.none, init, stateful)
+          runner(opts?.passivateAfter ?? 1_000, (id) =>
+            context.make<R, S, F1>(id, SUP.none, stateful, initial)
           )
         )
-
+        const name = yield* _(
+          pipe(
+            AS.resolvePath(context.address.path)["|>"](T.orDie),
+            T.map(([_, __, ___, actorName]) => actorName.substr(1))
+          )
+        )
         const cluster = yield* _(Cluster)
         const cli = yield* _(KeeperClient)
 
-        const scope = yield* _(
-          Scope.makeScope<Exit<unknown, unknown>>()["|>"](
-            M.makeExit((_, ex) => _.close(ex))
-          )
-        )
+        while (1) {
+          const all = yield* _(Q.takeBetween_(queue, 1, 100))
 
-        const distributed = yield* _(
-          pipe(
-            system.make(
-              `distributed/proxy/${name}`,
-              SUP.none,
-              {},
-              new A.ActorProxy(stateful.messages, (queue) =>
-                T.gen(function* (_) {
-                  while (1) {
-                    const all = yield* _(Q.takeBetween_(queue, 1, 100))
+          const slots: Record<string, Chunk.Chunk<A.PendingMessage<F1>>> = {}
 
-                    const slots: Record<string, Chunk.Chunk<A.PendingMessage<F1>>> = {}
+          for (const r of all) {
+            const id = messageToId(r[0])
+            if (!slots[id]) {
+              slots[id] = Chunk.empty()
+            }
+            slots[id] = Chunk.append_(slots[id], r)
+          }
 
-                    for (const r of all) {
-                      const id = messageToId({ name, message: r[0] })
-                      if (!slots[id]) {
-                        slots[id] = Chunk.empty()
-                      }
-                      slots[id] = Chunk.append_(slots[id], r)
+          yield* _(
+            T.forEachUnitPar_(Object.keys(slots), (id) =>
+              T.forEachUnit_(slots[id], ([a, p]) => {
+                return T.gen(function* (_) {
+                  const membersDir = `${cluster.clusterDir}/distributed/${name}/${id}/members`
+
+                  yield* _(cli.mkdir(membersDir))
+
+                  const leader = yield* _(
+                    pipe(
+                      cli.getChildren(membersDir),
+                      T.map(Chunk.head),
+                      EO.chain((s) => cli.getData(`${membersDir}/${s}`)),
+                      EO.map((s) => s.toString("utf8"))
+                    )
+                  )
+
+                  // there is a leader
+                  if (O.isSome(leader)) {
+                    if (leader.value === cluster.nodeId) {
+                      // we are the leader
+                      yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
+                    } else {
+                      // we are not the leader, use cluster
+                      const { host, port } = yield* _(
+                        cluster.memberHostPort(leader.value)
+                      )
+                      const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
+                      yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
                     }
+                  } else {
+                    // there is no leader, attempt to self elect
+                    const selfNode = yield* _(
+                      cli.create(`${membersDir}/worker_`, {
+                        mode: "EPHEMERAL_SEQUENTIAL",
+                        data: Buffer.from(cluster.nodeId)
+                      })
+                    )
 
-                    yield* _(
-                      T.forEachUnitPar_(Object.keys(slots), (id) =>
-                        T.forEachUnit_(slots[id], ([a, p]) => {
-                          return T.gen(function* (_) {
-                            const membersDir = `${cluster.clusterDir}/distributed/${name}/${id}/members`
-
-                            yield* _(cli.mkdir(membersDir))
-
-                            const leader = yield* _(
-                              pipe(
-                                cli.getChildren(membersDir),
-                                T.map(Chunk.head),
-                                EO.chain((s) => cli.getData(`${membersDir}/${s}`)),
-                                EO.map((s) => s.toString("utf8"))
-                              )
-                            )
-
-                            // there is a leader
-                            if (O.isSome(leader)) {
-                              if (leader.value === cluster.nodeId) {
-                                // we are the leader
-                                yield* _(
-                                  factory.use(`distributed/leader/${id}`)((ask) =>
-                                    ask(a)["|>"](T.to(p))
-                                  )
-                                )
-                              } else {
-                                // we are not the leader, use cluster
-                                const { host, port } = yield* _(
-                                  cluster.memberHostPort(leader.value)
-                                )
-                                const recipient = `zio://${system.actorSystemName}@${host}:${port}/distributed/proxy/${id}`
-                                yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
-                              }
-                            } else {
-                              // there is no leader, attempt to self elect
-                              const selfNode = yield* _(
-                                cli.create(`${membersDir}/worker_`, {
-                                  mode: "EPHEMERAL_SEQUENTIAL",
-                                  data: Buffer.from(cluster.nodeId)
-                                })
-                              )
-
-                              const leader = yield* _(
-                                pipe(
-                                  cli.getChildren(membersDir),
-                                  T.map(Chunk.head),
-                                  EO.chain((s) => cli.getData(`${membersDir}/${s}`)),
-                                  EO.map((s) => s.toString("utf8"))
-                                )
-                              )
-
-                              // this should never be the case
-                              if (O.isNone(leader)) {
-                                yield* _(T.die("cannot elect a leader"))
-                              } else {
-                                // we got the leadership
-                                if (leader.value === cluster.nodeId) {
-                                  yield* _(
-                                    factory.use(`distributed/leader/${id}`)((ask) =>
-                                      ask(a)["|>"](T.to(p))
-                                    )
-                                  )
-                                } else {
-                                  // someone else got the leadership first
-                                  yield* _(cli.remove(selfNode))
-
-                                  const { host, port } = yield* _(
-                                    cluster.memberHostPort(leader.value)
-                                  )
-                                  const recipient = `zio://${system.actorSystemName}@${host}:${port}/distributed/proxy/${id}`
-                                  yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
-                                }
-                              }
-                            }
-                          })
-                        })
+                    const leader = yield* _(
+                      pipe(
+                        cli.getChildren(membersDir),
+                        T.map(Chunk.head),
+                        EO.chain((s) => cli.getData(`${membersDir}/${s}`)),
+                        EO.map((s) => s.toString("utf8"))
                       )
                     )
+
+                    // this should never be the case
+                    if (O.isNone(leader)) {
+                      yield* _(T.die("cannot elect a leader"))
+                    } else {
+                      // we got the leadership
+                      if (leader.value === cluster.nodeId) {
+                        yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
+                      } else {
+                        // someone else got the leadership first
+                        yield* _(cli.remove(selfNode))
+
+                        const { host, port } = yield* _(
+                          cluster.memberHostPort(leader.value)
+                        )
+                        const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
+                        yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
+                      }
+                    }
                   }
-
-                  return yield* _(T.never)
                 })
-              )
-            ),
-            T.overrideForkScope(scope.scope)
+              })
+            )
           )
-        )
+        }
 
-        return yield* _(
-          T.succeed(
-            identity<Distributed<N, F1>>({
-              actor: distributed,
-              messageToId,
-              name,
-              runningMapRef: factory.runningMapRef
-            })
-          )
-        )
+        return yield* _(T.never)
       })
     )
-  }
-}
+  )

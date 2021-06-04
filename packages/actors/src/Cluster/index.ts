@@ -396,7 +396,6 @@ export const makeSingleton =
               system.make(
                 `singleton/proxy/${id}`,
                 SUP.none,
-                0,
                 A.stateful(
                   stateful.messages,
                   S.unknown
@@ -406,7 +405,8 @@ export const makeSingleton =
                     ask(msg.payload),
                     T.chain((res) => msg.return(0, res))
                   )
-                })
+                }),
+                0
               ),
               T.overrideForkScope(scope.scope)
             )
@@ -418,7 +418,7 @@ export const makeSingleton =
                 M.gen(function* (_) {
                   const state = yield* _(init)
                   const ref: ActorRef<F1> = yield* _(
-                    system.make(`singleton/leader/${id}`, SUP.none, state, stateful)
+                    system.make(`singleton/leader/${id}`, SUP.none, stateful, state)
                   )
 
                   return yield* _(
