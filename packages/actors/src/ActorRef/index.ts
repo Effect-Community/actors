@@ -75,7 +75,7 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * @tparam A return type
    * @return effectful response
    */
-  ask<A extends F1>(msg: A): T.IO<Throwable, AM.ResponseOf<A>>
+  ask<A extends F1>(msg: A): T.Effect<T.DefaultEnv, Throwable, AM.ResponseOf<A>>
 
   /**
    * Send message to an actor as `fire-and-forget` -

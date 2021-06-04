@@ -1,6 +1,7 @@
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as HashMap from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as T from "@effect-ts/core/Effect"
+import * as Clock from "@effect-ts/core/Effect/Clock"
 import type { Exit } from "@effect-ts/core/Effect/Exit"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -55,19 +56,25 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
       )
     )
 
-    const statsRef = yield* _(REF.makeRef(HashMap.make<string, { inFlight: number }>()))
+    const statsRef = yield* _(
+      REF.makeRef(HashMap.make<string, { inFlight: number; last: number }>())
+    )
 
     function proxy(path: string, ref: ActorRef<F1>): ActorRef<F1>["ask"] {
       return (m) =>
         pipe(
           T.gen(function* (_) {
+            const last = yield* _(Clock.currentTime)
             yield* _(
               REF.update_(statsRef, (hm) => {
                 const stat = HashMap.get_(hm, path)
                 if (O.isSome(stat)) {
-                  return HashMap.set_(hm, path, { inFlight: stat.value.inFlight + 1 })
+                  return HashMap.set_(hm, path, {
+                    inFlight: stat.value.inFlight + 1,
+                    last
+                  })
                 }
-                return HashMap.set_(hm, path, { inFlight: 1 })
+                return HashMap.set_(hm, path, { inFlight: 1, last })
               })
             )
           }),
@@ -75,15 +82,17 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
             () => ref.ask(m),
             () =>
               T.gen(function* (_) {
+                const last = yield* _(Clock.currentTime)
                 yield* _(
                   REF.update_(statsRef, (hm) => {
                     const stat = HashMap.get_(hm, path)
                     if (O.isSome(stat)) {
                       return HashMap.set_(hm, path, {
-                        inFlight: stat.value.inFlight - 1
+                        inFlight: stat.value.inFlight - 1,
+                        last
                       })
                     }
-                    return HashMap.set_(hm, path, { inFlight: 0 })
+                    return HashMap.set_(hm, path, { inFlight: 0, last })
                   })
                 )
               })
