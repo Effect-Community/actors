@@ -134,7 +134,7 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
 
     yield* _(
       T.forkManaged(
-        T.repeat(Sh.windowed(1_000))(
+        T.repeat(Sh.windowed(passivateAfter))(
           T.gen(function* (_) {
             const now = yield* _(Clock.currentTime)
             const stats = yield* _(REF.get(statsRef))
