@@ -48,14 +48,8 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
     )
 
     const gatesRef = yield* _(
-      pipe(
-        REF.makeRef(HashMap.make<string, TRef.TRef<boolean>>()),
-        M.make((ref) =>
-          pipe(
-            REF.get(ref),
-            T.chain((hm) => T.forEach_(hm, ([_, r]) => STM.commit(TRef.set_(r, false))))
-          )
-        )
+      REF.makeRef(
+        HashMap.make<string, TRef.TRef<{ listeners: number; closing: boolean }>>()
       )
     )
 
@@ -105,29 +99,65 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
 
     function passivate(now: number, _: Chunk.Chunk<string>) {
       return T.forEachUnitPar_(_, (path) =>
-        locking(path)(
+        pipe(
           T.gen(function* (_) {
-            const runningMap = yield* _(REF.get(runningMapRef))
-            const running = HashMap.get_(runningMap, path)
-            if (O.isSome(running)) {
-              const statsMap = yield* _(REF.get(statsRef))
-              const stats = HashMap.get_(statsMap, path)
+            const map = yield* _(REF.get(gatesRef))
+            const gate = HashMap.get_(map, path)
 
-              if (O.isSome(stats)) {
-                if (
-                  stats.value.inFlight === 0 &&
-                  now - stats.value.last >= passivateAfter
-                ) {
-                  const rem = yield* _(running.value.stop)
-                  if (rem.length > 0) {
-                    yield* _(T.die("Bug, we lost messages"))
-                  }
-                  yield* _(REF.update_(statsRef, HashMap.remove(path)))
-                  yield* _(REF.update_(runningMapRef, HashMap.remove(path)))
-                }
-              }
+            if (O.isSome(gate)) {
+              yield* _(
+                STM.commit(
+                  pipe(
+                    TRef.get(gate.value),
+                    STM.tap((_) => STM.check(_.listeners === 0 && _.closing === false)),
+                    STM.chain((_) =>
+                      TRef.set_(gate.value, {
+                        closing: true,
+                        listeners: _.listeners
+                      })
+                    )
+                  )
+                )
+              )
+              return gate.value
+            } else {
+              const gate = yield* _(TRef.makeCommit({ listeners: 0, closing: true }))
+              yield* _(REF.update_(gatesRef, HashMap.set(path, gate)))
+              return gate
             }
-          })
+          }),
+          T.bracket(
+            () =>
+              T.gen(function* (_) {
+                const runningMap = yield* _(REF.get(runningMapRef))
+                const running = HashMap.get_(runningMap, path)
+                if (O.isSome(running)) {
+                  const statsMap = yield* _(REF.get(statsRef))
+                  const stats = HashMap.get_(statsMap, path)
+
+                  if (O.isSome(stats)) {
+                    if (
+                      stats.value.inFlight === 0 &&
+                      now - stats.value.last >= passivateAfter
+                    ) {
+                      const rem = yield* _(running.value.stop)
+                      if (rem.length > 0) {
+                        yield* _(T.die("Bug, we lost messages"))
+                      }
+                      yield* _(REF.update_(statsRef, HashMap.remove(path)))
+                      yield* _(REF.update_(runningMapRef, HashMap.remove(path)))
+                    }
+                  }
+                }
+              }),
+            (g) =>
+              STM.commit(
+                TRef.update_(g, (_) => ({
+                  closing: false,
+                  listeners: _.listeners
+                }))
+              )
+          )
         )
       )
     }
@@ -152,55 +182,59 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
       )
     )
 
-    const locking =
-      (path: string) =>
-      <R2, E2, A2>(effect: T.Effect<R2, E2, A2>) =>
-        pipe(
-          T.gen(function* (_) {
-            const map = yield* _(REF.get(gatesRef))
-            const gate = HashMap.get_(map, path)
-
-            if (O.isSome(gate)) {
-              yield* _(
-                STM.commit(
-                  pipe(
-                    TRef.get(gate.value),
-                    STM.chain(STM.check),
-                    STM.chain(() => TRef.set_(gate.value, false))
-                  )
-                )
-              )
-              return gate.value
-            } else {
-              const gate = yield* _(TRef.makeCommit(false))
-              yield* _(REF.update_(gatesRef, HashMap.set(path, gate)))
-              return gate
-            }
-          }),
-          T.bracket(
-            () => effect,
-            (g) => STM.commit(TRef.set_(g, true))
-          )
-        )
-
     return {
       runningMapRef,
       statsRef,
-      locking,
       gatesRef,
       use:
         (path: string) =>
         <R2, E2, A2>(body: (ref: ActorRef<F1>["ask"]) => T.Effect<R2, E2, A2>) =>
-          locking(path)(
+          pipe(
             T.gen(function* (_) {
-              const isRunning = HashMap.get_(yield* _(REF.get(runningMapRef)), path)
-              if (O.isSome(isRunning)) {
-                return yield* _(body(proxy(path, isRunning.value)))
+              const map = yield* _(REF.get(gatesRef))
+              const gate = HashMap.get_(map, path)
+
+              if (O.isSome(gate)) {
+                yield* _(
+                  STM.commit(
+                    pipe(
+                      TRef.get(gate.value),
+                      STM.tap((_) => STM.check(_.closing === false)),
+                      STM.chain((_) =>
+                        TRef.set_(gate.value, {
+                          closing: _.closing,
+                          listeners: _.listeners + 1
+                        })
+                      )
+                    )
+                  )
+                )
+                return gate.value
+              } else {
+                const gate = yield* _(TRef.makeCommit({ listeners: 1, closing: false }))
+                yield* _(REF.update_(gatesRef, HashMap.set(path, gate)))
+                return gate
               }
-              const ref = yield* _(factory(path))
-              yield* _(REF.update_(runningMapRef, HashMap.set(path, ref)))
-              return yield* _(body(proxy(path, ref)))
-            })
+            }),
+            T.bracket(
+              () =>
+                T.gen(function* (_) {
+                  const isRunning = HashMap.get_(yield* _(REF.get(runningMapRef)), path)
+                  if (O.isSome(isRunning)) {
+                    return yield* _(body(proxy(path, isRunning.value)))
+                  }
+                  const ref = yield* _(factory(path))
+                  yield* _(REF.update_(runningMapRef, HashMap.set(path, ref)))
+                  return yield* _(body(proxy(path, ref)))
+                }),
+              (g) =>
+                STM.commit(
+                  TRef.update_(g, (_) => ({
+                    closing: _.closing,
+                    listeners: _.listeners - 1
+                  }))
+                )
+            )
           )
     }
   })
