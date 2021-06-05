@@ -1,6 +1,6 @@
 import { Chunk } from "@effect-ts/core"
+import * as MAP from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as HS from "@effect-ts/core/Collections/Immutable/HashSet"
-import * as MAP from "@effect-ts/core/Collections/Immutable/Map"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as REF from "@effect-ts/core/Effect/Ref"
@@ -102,7 +102,7 @@ export class ActorSystem {
     readonly actorSystemName: string,
     readonly config: O.Option<string>,
     readonly remoteConfig: O.Option<RemoteConfig>,
-    readonly refActorMap: REF.Ref<MAP.Map<string, A.Actor<any>>>,
+    readonly refActorMap: REF.Ref<MAP.HashMap<string, A.Actor<any>>>,
     readonly parentActor: O.Option<string>
   ) {}
 
@@ -138,7 +138,7 @@ export class ActorSystem {
       ),
       T.tap((_) =>
         O.fold_(
-          MAP.lookup_(_.map, _.finalName),
+          MAP.get_(_.map, _.finalName),
           () => T.unit,
           () => T.fail(new ActorAlreadyExistsException(_.finalName))
         )
@@ -169,9 +169,7 @@ export class ActorSystem {
           T.catchAll((e) => T.fail(new ErrorMakingActorException(e)))
         )
       ),
-      T.tap((_) =>
-        REF.set_(this.refActorMap, MAP.insert_(_.map, _.finalName, _.actor))
-      ),
+      T.tap((_) => REF.set_(this.refActorMap, MAP.set_(_.map, _.finalName, _.actor))),
       T.map((_) => new AR.ActorRefLocal(_.address, _.actor))
     )
   }
@@ -252,7 +250,7 @@ export class ActorSystem {
         if (_.pathActSysName === this.actorSystemName) {
           return pipe(
             T.succeed(_),
-            T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
+            T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
             T.chain((_) =>
               O.fold_(
                 _.actorRef,
@@ -284,7 +282,7 @@ export class ActorSystem {
         if (_.pathActSysName === this.actorSystemName) {
           return pipe(
             T.succeed(_),
-            T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
+            T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
             T.chain((_) =>
               O.fold_(
                 _.actorRef,
@@ -331,7 +329,7 @@ export class ActorSystem {
         ) {
           return pipe(
             T.succeed(params),
-            T.let("actorRef", (_) => MAP.lookup_(_.actorMap, _.actorName)),
+            T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
             T.chain((_) =>
               O.fold_(
                 _.actorRef,
@@ -436,7 +434,7 @@ export function make(
   return pipe(
     T.do,
     T.bind("initActorRefMap", (_) =>
-      REF.makeRef<MAP.Map<string, A.Actor<any>>>(MAP.empty)
+      REF.makeRef<MAP.HashMap<string, A.Actor<any>>>(MAP.make())
     ),
     T.let(
       "actorSystem",
