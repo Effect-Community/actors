@@ -4,19 +4,20 @@ import * as T from "@effect-ts/core/Effect"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
+import type { _R } from "@effect-ts/core/Utils"
 import type * as SCH from "@effect-ts/schema"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 
 import type * as AS from "../ActorSystem"
-import type { Throwable } from "../common"
+import type { ActorSystemException, Throwable } from "../common"
 import type * as EV from "../Envelope"
 import * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
 export type PendingMessage<A extends AM.AnyMessage> = readonly [
   A,
-  P.Promise<Throwable, AM.ResponseOf<A>>
+  P.Promise<AM.ErrorOf<A> | ActorSystemException, AM.ResponseOf<A>>
 ]
 
 export class Actor<F1 extends AM.AnyMessage> {
@@ -43,7 +44,7 @@ export class Actor<F1 extends AM.AnyMessage> {
 
   ask<A extends F1>(fa: A) {
     return pipe(
-      P.make<Throwable, AM.ResponseOf<A>>(),
+      P.make<AM.ErrorOf<A> | ActorSystemException, AM.ResponseOf<A>>(),
       T.tap((promise) => Q.offer_(this.queue, tuple(fa, promise))),
       T.chain(P.await)
     )
@@ -55,7 +56,7 @@ export class Actor<F1 extends AM.AnyMessage> {
    */
   tell(fa: F1) {
     return pipe(
-      P.make<Throwable, any>(),
+      P.make<AM.ErrorOf<F1> | ActorSystemException, any>(),
       T.chain((promise) => Q.offer_(this.queue, tuple(fa, promise))),
       T.zipRight(T.unit)
     )
@@ -79,20 +80,30 @@ export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<F1>>
 }
 
-export type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {
+export type StatefulEnvelope<F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: {
     _tag: Tag
     payload: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
-    return: (
-      s: S,
-      r: AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
-    ) => T.Effect<unknown, never, StatefulResponse<S, AM.ExtractTagged<F1, Tag>>>
   }
 }[AM.TagsOf<F1>]
 
-export type StatefulResponse<S, F1 extends AM.AnyMessage> = {
-  [Tag in AM.TagsOf<F1>]: readonly [S, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>]
-}[AM.TagsOf<F1>]
+export interface StatefulMatcher<F1 extends AM.AnyMessage> {
+  <
+    X extends {
+      [Tag in AM.TagsOf<F1>]: (
+        _: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
+      ) => T.Effect<
+        any,
+        AM.ErrorOf<AM.ExtractTagged<F1, Tag>>,
+        AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
+      >
+    }
+  >(
+    handlers: X
+  ): (
+    msg: StatefulEnvelope<F1>
+  ) => T.Effect<_R<ReturnType<X[AM.TagsOf<F1>]>>, AM.ErrorOf<F1>, AM.ResponseOf<F1>>
+}
 
 export function stateful<S, F1 extends AM.AnyMessage>(
   messages: AM.MessageRegistry<F1>,
@@ -100,11 +111,10 @@ export function stateful<S, F1 extends AM.AnyMessage>(
 ) {
   return <R>(
     receive: (
-      state: S,
-      context: AS.Context<F1>
-    ) => (
-      msg: StatefulEnvelope<S, F1>
-    ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
+      state: REF.Ref<S>,
+      context: AS.Context<F1>,
+      matchTag: StatefulMatcher<F1>
+    ) => (msg: StatefulEnvelope<F1>) => T.Effect<R, AM.ErrorOf<F1>, AM.ResponseOf<F1>>
   ) => new Stateful<R, S, F1>(messages, stateSchema, receive)
 }
 
@@ -117,11 +127,10 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
     readonly messages: AM.MessageRegistry<F1>,
     readonly stateSchema: SCH.Standard<S>,
     readonly receive: (
-      state: S,
-      context: AS.Context<F1>
-    ) => (
-      msg: StatefulEnvelope<S, F1>
-    ) => T.Effect<R, Throwable, StatefulResponse<S, F1>>
+      state: REF.Ref<S>,
+      context: AS.Context<F1>,
+      matchTag: StatefulMatcher<F1>
+    ) => (msg: StatefulEnvelope<F1>) => T.Effect<R, AM.ErrorOf<F1>, AM.ResponseOf<F1>>
   ) {
     super()
   }
@@ -138,43 +147,36 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
       msg: PendingMessage<F1>,
       state: REF.Ref<S>
     ): T.RIO<R & HasClock, void> => {
-      return pipe(
-        T.do,
-        T.bind("s", () => REF.get(state)),
-        T.let("fa", () => msg[0]),
-        T.let("promise", () => msg[1]),
-        T.let("receiver", (_) =>
-          this.receive(
-            _.s,
-            context
-          )({
-            _tag: _.fa._tag,
-            payload: _.fa,
-            return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
-          } as any)
-        ),
-        T.let(
-          "completer",
-          (_) =>
-            ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
-              pipe(
-                REF.set_(state, s),
-                T.zipRight(P.succeed_(_.promise, a)),
-                T.as(T.unit)
-              )
-        ),
-        T.chain((_) =>
+      const receive = this.receive
+      return T.gen(function* ($) {
+        const s = yield* $(pipe(REF.get(state), T.chain(REF.makeRef)))
+        const [fa, promise] = msg
+        const receiver = receive(
+          s,
+          context,
+          (rec) => (msg) => rec[msg._tag](msg.payload)
+        )({ _tag: fa._tag, payload: fa as any })
+
+        const completer = (a: AM.ResponseOf<F1>) =>
+          pipe(
+            REF.get(s),
+            T.chain((_) => REF.set_(state, _)),
+            T.zipRight(P.succeed_(promise, a)),
+            T.as(T.unit)
+          )
+
+        return yield* $(
           T.foldM_(
-            _.receiver,
+            receiver,
             (e) =>
               pipe(
-                supervisor.supervise(_.receiver, e),
-                T.foldM((__) => P.fail_(_.promise, e), _.completer)
+                supervisor.supervise(receiver, e),
+                T.foldM(() => P.fail_(promise, e), completer)
               ),
-            _.completer
+            completer
           )
         )
-      )
+      })
     }
 
     return (initial) =>

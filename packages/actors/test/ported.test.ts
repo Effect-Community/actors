@@ -3,6 +3,7 @@ import * as T from "@effect-ts/core/Effect"
 import * as REF from "@effect-ts/core/Effect/Ref"
 import * as SE from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
+import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as TE from "@effect-ts/jest/Test"
 import * as S from "@effect-ts/schema"
@@ -19,27 +20,30 @@ import * as SUP from "../src/Supervisor"
 
 const unit = S.unknown["|>"](S.brand<void>())
 
-class Reset extends AM.Message("Reset", S.props({}), unit) {}
-class Increase extends AM.Message("Increase", S.props({}), unit) {}
-class Get extends AM.Message("Get", S.props({}), S.number) {}
-class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
+class Reset extends AM.Message("Reset", S.props({}), unit, unit) {}
+class Increase extends AM.Message("Increase", S.props({}), unit, unit) {}
+class Get extends AM.Message("Get", S.props({}), unit, S.number) {}
+class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.unknown, S.number) {}
 
 const Message = AM.messages(Reset, Increase, Get, GetAndReset)
 type Message = AM.TypeOf<typeof Message>
 
+interface FakeDependency {}
+const FakeDependency = tag<FakeDependency>()
+
 const handler = AC.stateful(
   Message,
   S.number
-)((state, ctx) =>
+)((state, ctx, matchTag) =>
   matchTag({
-    Reset: (_) => _.return(0),
-    Increase: (_) => _.return(state + 1),
-    Get: (_) => _.return(state, state),
+    Reset: (_) => REF.update_(state, () => 0),
+    Increase: (_) => REF.update_(state, (_) => _ + 1),
+    Get: (_) => REF.get(state),
     GetAndReset: (_) =>
       pipe(
         ctx.self,
         T.chain((self) => self.tell(new Reset())),
-        T.zipRight(_.return(state, state))
+        T.zipRight(REF.get(state))
       )
   })
 )
@@ -173,19 +177,19 @@ describe("Actor", () => {
     ))
 
   it("error recovery by retrying", () => {
-    class Tick extends AM.Message("Tick", S.props({}), unit) {}
+    class Tick extends AM.Message("Tick", S.props({}), unit, unit) {}
     const TickMessage = AM.messages(Tick)
 
     const tickHandler = (ref: REF.Ref<number>) =>
       AC.stateful(
         TickMessage,
         S.number
-      )((_, ctx) =>
+      )((_, ctx, matchTag) =>
         matchTag({
           Tick: (_) =>
             pipe(
               REF.updateAndGet_(ref, (s) => s + 1),
-              T.chain((s) => (s < 10 ? T.fail("fail") : _.return(0)))
+              T.chain((s) => (s < 10 ? T.fail("fail") : T.succeed(0)))
             )
         })
       )

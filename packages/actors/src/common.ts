@@ -1,3 +1,5 @@
+import * as S from "@effect-ts/schema"
+
 export type Throwable = unknown
 
 export class ActorAlreadyExistsException {
@@ -33,3 +35,11 @@ export class CommandParserException {
   readonly _tag = "CommandParserException"
   constructor(readonly exception: unknown) {}
 }
+
+export class ActorSystemException extends S.Model<ActorSystemException>()(
+  S.props({
+    _tag: S.prop(S.literal("ActorSystemException")),
+    message: S.prop(S.string),
+    meta: S.prop(S.unknown)
+  })
+) {}

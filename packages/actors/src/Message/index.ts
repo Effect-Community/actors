@@ -11,68 +11,89 @@ import { CommandParserException } from "../common"
 
 export const RequestSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")
 export const ResponseSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")
+export const ErrorSchemaSymbol = Symbol("@effect-ts/actors/ErrorSchema")
 export const _Response = Symbol("@effect-ts/actors/PhantomResponse")
+export const _Error = Symbol("@effect-ts/actors/PhantomError")
 
 export interface Message<
   Tag extends string,
   Req extends S.SchemaUPI,
+  Err extends S.SchemaUPI,
   Res extends S.SchemaUPI
 > {
   readonly _tag: Tag
   readonly [_Response]: () => S.ParsedShapeOf<Res>
+  readonly [_Error]: () => S.ParsedShapeOf<Err>
 
-  readonly [ResponseSchemaSymbol]: Res
   readonly [RequestSchemaSymbol]: Req
+  readonly [ErrorSchemaSymbol]: Res
+  readonly [ResponseSchemaSymbol]: Res
 }
 
 export type TypedMessage<
   Tag extends string,
   Req extends S.SchemaUPI,
+  Err extends S.SchemaUPI,
   Res extends S.SchemaUPI
-> = S.ParsedShapeOf<Req> & Message<Tag, Req, Res>
+> = S.ParsedShapeOf<Req> & Message<Tag, Req, Err, Res>
 
-export type AnyMessage = Message<any, S.SchemaAny, S.SchemaAny>
+export type AnyMessage = Message<any, S.SchemaAny, S.SchemaAny, S.SchemaAny>
 
-export type ResponseOf<A extends AnyMessage> = [A] extends [Message<any, any, infer B>]
+export interface MessageFactory<
+  Tag extends string,
+  Req extends S.SchemaUPI,
+  Err extends S.SchemaUPI,
+  Res extends S.SchemaUPI
+> {
+  readonly Tag: Tag
+  readonly RequestSchema: Req
+  readonly ErrorSchema: Err
+  readonly ResponseSchema: Res
+
+  new (
+    _: IsEqualTo<S.ParsedShapeOf<Req>, {}> extends true ? void : S.ParsedShapeOf<Req>
+  ): TypedMessage<Tag, Req, Err, Res>
+}
+
+export type AnyMessageFactory = MessageFactory<
+  any,
+  S.SchemaAny,
+  S.SchemaAny,
+  S.SchemaAny
+>
+
+export type RequestOf<A extends AnyMessage> = [A] extends [
+  Message<any, infer B, any, any>
+]
   ? S.ParsedShapeOf<B>
   : void
-
-export type RequestOf<A extends AnyMessage> = [A] extends [Message<any, infer B, any>]
+export type ErrorOf<A extends AnyMessage> = [A] extends [
+  Message<any, any, infer B, any>
+]
+  ? S.ParsedShapeOf<B>
+  : void
+export type ResponseOf<A extends AnyMessage> = [A] extends [
+  Message<any, any, any, infer B>
+]
   ? S.ParsedShapeOf<B>
   : void
 
 export type TagsOf<A extends AnyMessage> = A["_tag"]
 export type ExtractTagged<A extends AnyMessage, Tag extends string> = Extract<
   A,
-  TypedMessage<Tag, any, any>
+  TypedMessage<Tag, any, any, any>
 >
 
 type MessageFactoryOf<A extends AnyMessage> = [A] extends [
-  Message<infer Tag, infer Req, infer Res>
+  Message<infer Tag, infer Req, infer Err, infer Res>
 ]
-  ? MessageFactory<Tag, Req, Res>
+  ? MessageFactory<Tag, Req, Err, Res>
   : never
 
 export interface MessageRegistry<F1>
   extends Record<string, [F1] extends [AnyMessage] ? MessageFactoryOf<F1> : never> {}
 
 export type InstanceOf<A> = [A] extends [{ new (...any: any[]): infer B }] ? B : never
-
-export interface MessageFactory<
-  Tag extends string,
-  Req extends S.SchemaUPI,
-  Res extends S.SchemaUPI
-> {
-  readonly Tag: Tag
-  readonly RequestSchema: Req
-  readonly ResponseSchema: Res
-
-  new (
-    _: IsEqualTo<S.ParsedShapeOf<Req>, {}> extends true ? void : S.ParsedShapeOf<Req>
-  ): TypedMessage<Tag, Req, Res>
-}
-
-export type AnyMessageFactory = MessageFactory<any, S.SchemaAny, S.SchemaAny>
 
 export type TypeOf<A extends MessageRegistry<any>> = [A] extends [
   MessageRegistry<infer B>
@@ -83,18 +104,21 @@ export type TypeOf<A extends MessageRegistry<any>> = [A] extends [
 export function Message<
   Tag extends string,
   Req extends S.SchemaUPI,
+  Err extends S.SchemaUPI,
   Res extends S.SchemaUPI
->(Tag: Tag, Req: Req, Res: Res): MessageFactory<Tag, Req, Res> {
+>(Tag: Tag, Req: Req, Err: Err, Res: Res): MessageFactory<Tag, Req, Err, Res> {
   // @ts-expect-error
   return class {
-    static RequestSchema = Req
-    static ResponseSchema = Res
     static Tag = Tag
+    static RequestSchema = Req
+    static ErrorSchema = Err
+    static ResponseSchema = Res
 
     readonly _tag = Tag;
 
-    readonly [ResponseSchemaSymbol] = Res;
-    readonly [RequestSchemaSymbol] = Req
+    readonly [RequestSchemaSymbol] = Req;
+    readonly [ErrorSchemaSymbol] = Err;
+    readonly [ResponseSchemaSymbol] = Res
 
     constructor(ps?: any) {
       if (ps) {
@@ -122,7 +146,7 @@ export function decodeCommand<F1 extends AnyMessage>(
 ) => T.Effect<
   unknown,
   CommandParserException,
-  readonly [F1, (response: ResponseOf<F1>) => unknown]
+  readonly [F1, (response: ResponseOf<F1>) => unknown, (error: ErrorOf<F1>) => unknown]
 > {
   const parser = pipe(
     registry,
@@ -141,7 +165,8 @@ export function decodeCommand<F1 extends AnyMessage>(
       T.map((t) =>
         tuple(
           new registry[t.get(0)._tag](t.get(0)),
-          ENC.for(registry[t.get(0)._tag].ResponseSchema)
+          ENC.for(registry[t.get(0)._tag].ResponseSchema),
+          ENC.for(registry[t.get(0)._tag].ErrorSchema)
         )
       ),
       T.mapError((e) => new CommandParserException(e))

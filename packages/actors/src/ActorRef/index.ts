@@ -7,7 +7,7 @@ import { pipe } from "@effect-ts/system/Function"
 import type * as A from "../Actor"
 import { ActorSystem } from "../ActorSystem"
 import * as AA from "../Address"
-import type { Throwable } from "../common"
+import type { ActorSystemException, Throwable } from "../common"
 import * as Envelope from "../Envelope"
 import type * as AM from "../Message"
 
@@ -75,7 +75,9 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * @tparam A return type
    * @return effectful response
    */
-  ask<A extends F1>(msg: A): T.Effect<T.DefaultEnv, Throwable, AM.ResponseOf<A>>
+  ask<A extends F1>(
+    msg: A
+  ): T.Effect<T.DefaultEnv, AM.ErrorOf<A> | ActorSystemException, AM.ResponseOf<A>>
 
   /**
    * Send message to an actor as `fire-and-forget` -
@@ -84,7 +86,7 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * @param fa message
    * @return lifted unit
    */
-  tell(msg: F1): T.IO<Throwable, void>
+  tell(msg: F1): T.IO<ActorSystemException, void>
 
   /**
    * Get referential absolute actor path
@@ -127,7 +129,9 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     private readonly system: ActorSystem
   ) {}
 
-  ask<A extends F1>(msg: A): T.IO<Throwable, AM.ResponseOf<A>>
+  ask<A extends F1>(
+    msg: A
+  ): T.IO<AM.ErrorOf<A> | ActorSystemException, AM.ResponseOf<A>>
   ask<A extends F1>(msg: A) {
     return this.system.runEnvelope({
       command: Envelope.ask(msg),
@@ -135,7 +139,7 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     })
   }
 
-  tell(msg: F1): T.IO<Throwable, void>
+  tell(msg: F1): T.IO<ActorSystemException, void>
   tell(msg: F1) {
     return this.system.runEnvelope({
       command: Envelope.tell(msg),

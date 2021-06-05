@@ -30,7 +30,7 @@ import type { ActorRef } from "../ActorRef"
 import { withSystem } from "../ActorRef"
 import * as AS from "../ActorSystem"
 import { ClusterConfig } from "../ClusterConfig"
-import type { Throwable } from "../common"
+import type { ActorSystemException, Throwable } from "../common"
 import * as Envelope from "../Envelope"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
@@ -379,7 +379,7 @@ export const makeSingleton =
 
           const ask = <A extends F1>(fa: A) => {
             return pipe(
-              P.make<Throwable, AM.ResponseOf<A>>(),
+              P.make<ActorSystemException | AM.ErrorOf<A>, AM.ResponseOf<A>>(),
               T.tap((promise) => Q.offer_(queue, tuple(fa, promise))),
               T.chain(P.await)
             )
@@ -402,8 +402,7 @@ export const makeSingleton =
                 )(() => (msg) => {
                   return pipe(
                     // @ts-expect-error
-                    ask(msg.payload),
-                    T.chain((res) => msg.return(0, res))
+                    ask(msg.payload)
                   )
                 }),
                 0
