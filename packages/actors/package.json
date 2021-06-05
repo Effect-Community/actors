@@ -28,8 +28,15 @@
       "Actor",
       "ActorRef",
       "ActorSystem",
+      "Cluster",
+      "Distributed",
+      "Envelope",
       "EventSourcedStateful",
-      "Supervisor"
+      "Journal",
+      "Message",
+      "Remote",
+      "Supervisor",
+      "Transactional"
     ]
   },
   "peerDependencies": {
