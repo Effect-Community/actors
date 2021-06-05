@@ -16,13 +16,14 @@ import * as AM from "../src/Message"
 import { RemoteExpress } from "../src/Remote"
 import * as SUP from "../src/Supervisor"
 import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
-import { TestPG as TestPGConfig } from "./pg"
+import { TestPG } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
-  [">>>"](RemoteExpress("127.0.0.1", 34322)[">+>"](Cluster.LiveCluster))
+  [">+>"](RemoteExpress("127.0.0.1", 34322))
+  [">+>"](Cluster.LiveCluster)
   ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
-  ["<+<"](LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPGConfig)))
+  ["<+<"](LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPG)))
 
 class User extends S.Model<User>()(
   S.props({ _tag: S.prop(S.literal("User")), id: S.prop(S.string) })
