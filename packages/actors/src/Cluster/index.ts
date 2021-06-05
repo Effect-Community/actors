@@ -281,7 +281,7 @@ export const makeSingleton =
                   ["|>"](T.race(side(actor))),
                 (leader) =>
                   T.gen(function* (_) {
-                    const all = yield* _(Q.takeAll(queue))
+                    const all = yield* _(Q.takeBetween_(queue, 1, 100))
                     const { host, port } = yield* _(cluster.memberHostPort(leader))
 
                     const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/proxy/${id}`
@@ -289,10 +289,6 @@ export const makeSingleton =
                     for (const [a, p] of all) {
                       const act = yield* _(system.select(recipient))
                       yield* _(pipe(act.ask(a), T.to(p)))
-                    }
-
-                    if (all.length === 0) {
-                      yield* _(T.sleep(5))
                     }
                   })["|>"](T.forever)
               ),
