@@ -10,15 +10,15 @@ import * as S from "@effect-ts/schema"
 import { tag } from "@effect-ts/system/Has"
 import { matchTag, matchTag_ } from "@effect-ts/system/Utils"
 
+import { ActorSystemTag } from "../src/ActorSystem"
+import * as Cluster from "../src/Cluster"
+import * as ClusterConfig from "../src/ClusterConfig"
+import * as D from "../src/Distributed"
+import * as AM from "../src/Message"
+import * as SUP from "../src/Supervisor"
+import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 import { TestPG as TestPGConfig } from "../test/pg"
 import { TestKeeperConfig } from "../test/zookeeper"
-import { ActorSystemTag } from "./ActorSystem"
-import * as Cluster from "./Cluster"
-import * as ClusterConfig from "./ClusterConfig"
-import * as D from "./Distributed"
-import * as AM from "./Message"
-import * as SUP from "./Supervisor"
-import { LiveStateStorageAdapter, transactional } from "./Transactional"
 
 const AppLayer = Cluster.LiveCluster["<+<"](
   L.all(
