@@ -1,7 +1,5 @@
 import * as S from "@effect-ts/schema"
 
-export type Throwable = never
-
 export const ActorAlreadyExistsException = (actorName: string) =>
   new ActorSystemException({
     message: "ActorAlreadyExistsException",

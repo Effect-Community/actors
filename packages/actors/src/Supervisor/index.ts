@@ -3,8 +3,6 @@ import * as T from "@effect-ts/core/Effect"
 import type { HasClock } from "@effect-ts/core/Effect/Clock"
 import * as SCH from "@effect-ts/core/Effect/Schedule"
 
-import type * as C from "../common"
-
 export class Supervisor<R, E> {
   readonly [_R]: (r: R) => void
 
@@ -24,7 +22,7 @@ export function retry<R, E, A>(policy: SCH.Schedule<R, E, A>): Supervisor<R, E> 
 
 export function retryOrElse<R, E, A>(
   policy: SCH.Schedule<R, E, A>,
-  orElse: (e: E, a: A) => T.Effect<R, C.Throwable, void>
+  orElse: (e: E, a: A) => T.Effect<R, E, void>
 ): Supervisor<R, E> {
   return new Supervisor<R, E>((zio, error) =>
     T.mapError_(

@@ -9,7 +9,7 @@ import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import type * as SCH from "@effect-ts/schema"
 
-import type { Throwable } from "../common"
+import type { ActorSystemException } from "../common"
 
 export class PersistenceId extends C.Case<{ id: string }> {}
 
@@ -20,22 +20,22 @@ export interface Journal<S, EV> {
     events: CH.Chunk<EV>,
     stateSchema: SCH.Standard<S>,
     state: O.Option<S>
-  ): T.Effect<unknown, Throwable, void>
+  ): T.Effect<unknown, ActorSystemException, void>
   getEntry(
     persistenceId: PersistenceId,
     eventSchema: SCH.Standard<EV>,
     stateSchema: SCH.Standard<S>
   ): T.Effect<
     unknown,
-    Throwable,
-    readonly [O.Option<S>, S.Stream<unknown, Throwable, EV>]
+    ActorSystemException,
+    readonly [O.Option<S>, S.Stream<unknown, ActorSystemException, EV>]
   >
 }
 
 export interface JournalFactory {
   getJournal<S, EV>(
     actorSystemName: string
-  ): T.Effect<unknown, Throwable, Journal<S, EV>>
+  ): T.Effect<unknown, ActorSystemException, Journal<S, EV>>
 }
 export const JournalFactory = tag<JournalFactory>()
 
@@ -50,7 +50,7 @@ export class InMemJournal<S, EV> implements Journal<S, EV> {
     events: CH.Chunk<EV>,
     stateSchema: SCH.Standard<S>,
     state: O.Option<S>
-  ): T.Effect<unknown, Throwable, void> {
+  ): T.Effect<unknown, ActorSystemException, void> {
     return pipe(
       REF.update_(
         this.journalRef,
@@ -73,8 +73,8 @@ export class InMemJournal<S, EV> implements Journal<S, EV> {
     stateSchema: SCH.Standard<S>
   ): T.Effect<
     unknown,
-    Throwable,
-    readonly [O.Option<S>, S.Stream<unknown, Throwable, EV>]
+    ActorSystemException,
+    readonly [O.Option<S>, S.Stream<unknown, ActorSystemException, EV>]
   > {
     return pipe(
       REF.get(this.journalRef),
@@ -91,7 +91,7 @@ export class InMemJournalFactory implements JournalFactory {
 
   getJournal<S, EV>(
     actorSystemName: string
-  ): T.Effect<unknown, Throwable, Journal<S, EV>> {
+  ): T.Effect<unknown, ActorSystemException, Journal<S, EV>> {
     const currentJournal = pipe(
       REF.get(this.journalMap),
       T.map(HM.get(actorSystemName))

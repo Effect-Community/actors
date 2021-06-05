@@ -12,6 +12,7 @@ import { matchTag } from "@effect-ts/system/Utils"
 import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
 import * as AA from "../src/Address"
+import { ActorSystemException } from "../src/common"
 import * as EN from "../src/Envelope"
 import * as ESS from "../src/EventSourcedStateful"
 import * as J from "../src/Journal"
@@ -189,7 +190,11 @@ describe("Actor", () => {
           Tick: (_) =>
             pipe(
               REF.updateAndGet_(ref, (s) => s + 1),
-              T.chain((s) => (s < 10 ? T.fail("fail") : T.succeed(0)))
+              T.chain((s) =>
+                s < 10
+                  ? T.fail(new ActorSystemException({ message: "fail", meta: "fail" }))
+                  : T.succeed(0)
+              )
             )
         })
       )

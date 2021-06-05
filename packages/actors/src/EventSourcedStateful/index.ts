@@ -14,7 +14,7 @@ import type { IsEqualTo } from "@effect-ts/system/Utils"
 
 import * as A from "../Actor"
 import type * as AS from "../ActorSystem"
-import type { ActorSystemException, Throwable } from "../common"
+import type { ActorSystemException } from "../common"
 import type { Journal, PersistenceId } from "../Journal"
 import { JournalFactory } from "../Journal"
 import type * as AM from "../Message"
@@ -108,16 +108,16 @@ export class EventSourcedStateful<
   makeActor(
     supervisor: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     context: AS.Context<F1>,
-    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
+    optOutActorSystem: () => T.Effect<unknown, ActorSystemException, void>,
     mailboxSize: number = this.defaultMailboxSize
   ): (
     initial: S
-  ) => T.Effect<R & Has<JournalFactory> & HasClock, Throwable, A.Actor<F1>> {
+  ) => T.Effect<R & Has<JournalFactory> & HasClock, ActorSystemException, A.Actor<F1>> {
     const process = (
       msg: A.PendingMessage<F1>,
       state: REF.Ref<S>,
       journal: Journal<S, EV>
-    ): T.Effect<R & HasClock, Throwable, void> => {
+    ): T.Effect<R & HasClock, ActorSystemException, void> => {
       return pipe(
         T.do,
         T.bind("s", () => REF.get(state)),

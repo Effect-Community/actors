@@ -1,5 +1,6 @@
 import * as D from "@effect-ts/core/Collections/Immutable/Dictionary"
 import * as T from "@effect-ts/core/Effect"
+import * as O from "@effect-ts/core/Option"
 import type { IsEqualTo } from "@effect-ts/core/Utils"
 import * as S from "@effect-ts/schema"
 import * as ENC from "@effect-ts/schema/Encoder"
@@ -18,12 +19,14 @@ export const _Error = Symbol("@effect-ts/actors/PhantomError")
 export interface Message<
   Tag extends string,
   Req extends S.SchemaUPI,
-  Err extends S.SchemaUPI,
+  Err extends O.Option<S.SchemaUPI>,
   Res extends S.SchemaUPI
 > {
   readonly _tag: Tag
   readonly [_Response]: () => S.ParsedShapeOf<Res>
-  readonly [_Error]: () => S.ParsedShapeOf<Err>
+  readonly [_Error]: () => [Err] extends [O.Some<any>]
+    ? S.ParsedShapeOf<Err["value"]>
+    : never
 
   readonly [RequestSchemaSymbol]: Req
   readonly [ErrorSchemaSymbol]: Res
@@ -33,16 +36,16 @@ export interface Message<
 export type TypedMessage<
   Tag extends string,
   Req extends S.SchemaUPI,
-  Err extends S.SchemaUPI,
+  Err extends O.Option<S.SchemaUPI>,
   Res extends S.SchemaUPI
 > = S.ParsedShapeOf<Req> & Message<Tag, Req, Err, Res>
 
-export type AnyMessage = Message<any, S.SchemaAny, S.SchemaAny, S.SchemaAny>
+export type AnyMessage = Message<any, S.SchemaAny, any, S.SchemaAny>
 
 export interface MessageFactory<
   Tag extends string,
   Req extends S.SchemaUPI,
-  Err extends S.SchemaUPI,
+  Err extends O.Option<S.SchemaUPI>,
   Res extends S.SchemaUPI
 > {
   readonly Tag: Tag
@@ -58,7 +61,7 @@ export interface MessageFactory<
 export type AnyMessageFactory = MessageFactory<
   any,
   S.SchemaAny,
-  S.SchemaAny,
+  O.Option<S.SchemaAny>,
   S.SchemaAny
 >
 
@@ -67,11 +70,11 @@ export type RequestOf<A extends AnyMessage> = [A] extends [
 ]
   ? S.ParsedShapeOf<B>
   : void
-export type ErrorOf<A extends AnyMessage> = [A] extends [
-  Message<any, any, infer B, any>
-]
-  ? S.ParsedShapeOf<B>
-  : void
+
+export type ErrorOf<A extends AnyMessage> = [A] extends [Message<any, any, any, any>]
+  ? ReturnType<A[typeof _Error]>
+  : never
+
 export type ResponseOf<A extends AnyMessage> = [A] extends [
   Message<any, any, any, infer B>
 ]
@@ -106,7 +109,7 @@ export function Message<
   Req extends S.SchemaUPI,
   Err extends S.SchemaUPI,
   Res extends S.SchemaUPI
->(Tag: Tag, Req: Req, Err: Err, Res: Res): MessageFactory<Tag, Req, Err, Res> {
+>(Tag: Tag, Req: Req, Err: Err, Res: Res): MessageFactory<Tag, Req, O.Some<Err>, Res> {
   // @ts-expect-error
   return class {
     static Tag = Tag
@@ -172,7 +175,11 @@ export function decodeCommand<F1 extends AnyMessage>(
           ENC.for(registry[t.get(0)._tag].ResponseSchema),
           ENC.for(
             S.union({
-              Error: registry[t.get(0)._tag].ErrorSchema,
+              Error: O.fold_(
+                registry[t.get(0)._tag].ErrorSchema,
+                () => S.unknown,
+                (_) => _
+              ),
               ActorSystemException
             })
           )

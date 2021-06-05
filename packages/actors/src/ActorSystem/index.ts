@@ -15,7 +15,7 @@ import { pipe } from "@effect-ts/system/Function"
 import type * as A from "../Actor"
 import * as AR from "../ActorRef"
 import * as AA from "../Address"
-import type { ActorSystemException, Throwable } from "../common"
+import type { ActorSystemException } from "../common"
 import {
   ActorAlreadyExistsException,
   ErrorMakingActorException,

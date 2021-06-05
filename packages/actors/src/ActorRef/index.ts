@@ -7,7 +7,7 @@ import { pipe } from "@effect-ts/system/Function"
 import type * as A from "../Actor"
 import { ActorSystem } from "../ActorSystem"
 import * as AA from "../Address"
-import type { ActorSystemException, Throwable } from "../common"
+import type { ActorSystemException } from "../common"
 import * as Envelope from "../Envelope"
 import type * as AM from "../Message"
 
@@ -148,7 +148,7 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   }
 
   // @ts-expect-error
-  readonly stop: T.IO<Throwable, CH.Chunk<void>> = this.system.runEnvelope({
+  readonly stop: T.IO<ActorSystemException, CH.Chunk<void>> = this.system.runEnvelope({
     command: Envelope.stop(),
     recipient: this.address.path
   })
