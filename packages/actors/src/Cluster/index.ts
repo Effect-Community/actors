@@ -138,7 +138,7 @@ export const makeCluster = M.gen(function* (_) {
     <R, E, R2, E2>(
       onLeader: T.Effect<R, E, never>,
       whileFollower: (leader: MemberId) => T.Effect<R2, E2, never>
-    ) => {
+    ): T.Effect<R & R2, K.ZooError | E | E2, never> => {
       return T.gen(function* (_) {
         while (1) {
           const leader = yield* _(leaderId(scope))
@@ -148,11 +148,10 @@ export const makeCluster = M.gen(function* (_) {
           if (leader.value === nodeId) {
             yield* _(onLeader)
           } else {
-            yield* _(
-              T.race_(cli.waitDelete(`${scope}/${leader}`), whileFollower(leader.value))
-            )
+            yield* _(T.race_(watchLeader(scope), whileFollower(leader.value)))
           }
         }
+        return yield* _(T.never)
       })
     }
 
