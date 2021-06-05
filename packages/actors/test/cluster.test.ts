@@ -1,7 +1,6 @@
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import { pipe } from "@effect-ts/core/Function"
-import * as O from "@effect-ts/core/Option"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
@@ -62,10 +61,6 @@ describe("Cluster", () => {
 
       expect(yield* _(cluster.members)).equals(
         Chunk.single(new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }))
-      )
-
-      expect(yield* _(cluster.leader)).equals(
-        O.some(new Cluster.HostPort({ host: "127.0.0.1", port: 34322 }))
       )
     }))
 

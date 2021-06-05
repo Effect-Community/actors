@@ -15,7 +15,7 @@ import { KeeperClient } from "@effect-ts/keeper"
 import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
-import { Cluster, EO } from "../Cluster"
+import { Cluster } from "../Cluster"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
@@ -274,21 +274,14 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
           }
 
           yield* _(
-            T.forEachUnitPar_(Object.keys(slots), (id) =>
-              T.forEachUnit_(slots[id], ([a, p]) => {
-                return T.gen(function* (_) {
-                  const membersDir = `${cluster.clusterDir}/distributed/${name}/${id}/members`
+            M.forEachUnitPar_(Object.keys(slots), (id) =>
+              M.forEachUnit_(slots[id], ([a, p]) => {
+                return M.gen(function* (_) {
+                  const election = `distributed-${name}-${id}`
 
-                  yield* _(cli.mkdir(membersDir))
+                  yield* _(cluster.init(election))
 
-                  const leader = yield* _(
-                    pipe(
-                      cli.getChildren(membersDir),
-                      T.map(Chunk.head),
-                      EO.chain((s) => cli.getData(`${membersDir}/${s}`)),
-                      EO.map((s) => s.toString("utf8"))
-                    )
-                  )
+                  const leader = yield* _(cluster.leaderId(election))
 
                   // there is a leader
                   if (O.isSome(leader)) {
@@ -306,21 +299,9 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                     }
                   } else {
                     // there is no leader, attempt to self elect
-                    const selfNode = yield* _(
-                      cli.create(`${membersDir}/worker_`, {
-                        mode: "EPHEMERAL_SEQUENTIAL",
-                        data: Buffer.from(cluster.nodeId)
-                      })
-                    )
+                    const selfNode = yield* _(cluster.join(election))
 
-                    const leader = yield* _(
-                      pipe(
-                        cli.getChildren(membersDir),
-                        T.map(Chunk.head),
-                        EO.chain((s) => cli.getData(`${membersDir}/${s}`)),
-                        EO.map((s) => s.toString("utf8"))
-                      )
-                    )
+                    const leader = yield* _(cluster.leaderId(election))
 
                     // this should never be the case
                     if (O.isNone(leader)) {

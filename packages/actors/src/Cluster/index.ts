@@ -6,7 +6,6 @@ import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
-import * as Sh from "@effect-ts/core/Effect/Schedule"
 import * as Scope from "@effect-ts/core/Effect/Scope"
 import { pipe } from "@effect-ts/core/Function"
 import { tag } from "@effect-ts/core/Has"
@@ -14,12 +13,10 @@ import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
-import type { ZooError } from "@effect-ts/keeper"
 import * as K from "@effect-ts/keeper"
 import { KeeperClient } from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
 import { tuple } from "@effect-ts/system/Function"
-import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
 
 import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
@@ -52,6 +49,12 @@ export class ActorError extends Tagged("ActorError")<{
   readonly message: string
 }> {}
 
+export interface MemberIdBrand {
+  readonly MemberIdBrand: unique symbol
+}
+
+export type MemberId = string & MemberIdBrand
+
 export const makeCluster = M.gen(function* (_) {
   const cli = yield* _(K.KeeperClient)
   const system = yield* _(AS.ActorSystemTag)
@@ -82,11 +85,11 @@ export const makeCluster = M.gen(function* (_) {
       ["|>"](M.make((p) => cli.remove(p)["|>"](T.orDie)))
   )
 
-  const nodeId = `member_${nodePath.substr(prefix.length)}`
+  const nodeId = `member_${nodePath.substr(prefix.length)}` as MemberId
 
   const memberHostPort = yield* _(
     T.memoize(
-      (member: string): T.Effect<unknown, K.ZooError, HostPort> =>
+      (member: MemberId): T.Effect<unknown, K.ZooError, HostPort> =>
         pipe(
           cli.getData(`${membersDir}/${member}`),
           T.chain(
@@ -105,70 +108,78 @@ export const makeCluster = M.gen(function* (_) {
     )
   )
 
-  const members = pipe(cli.getChildren(membersDir), T.chain(T.forEach(memberHostPort)))
-
-  const leader = pipe(
+  const members = pipe(
     cli.getChildren(membersDir),
-    T.map(Chunk.head),
-    EO.chainT(memberHostPort)
+    T.chain(T.forEach((x) => memberHostPort(x as MemberId)))
   )
+
+  const init = (scope: string) => cli.mkdir(`${clusterDir}/elections/${scope}`)
+
+  const join = (scope: string) =>
+    cli.create(`${clusterDir}/elections/${scope}/w_`, {
+      mode: "EPHEMERAL_SEQUENTIAL",
+      data: Buffer.from(nodeId)
+    })
+
+  const leave = (nodePath: string) => cli.remove(nodePath)
+
+  const leaderPath = (scope: string) =>
+    pipe(cli.getChildren(`${clusterDir}/elections/${scope}`), T.map(Chunk.head))
 
   const leaderId = (scope: string) =>
     pipe(
-      cli.getChildren(scope),
-      T.map(Chunk.head),
-      T.chain(T.getOrFail),
-      T.retry(
-        pipe(
-          Sh.windowed(100),
-          Sh.whileInput(
-            (u: ZooError | NoSuchElementException) =>
-              u._tag === "NoSuchElementException"
-          )
-        )
-      ),
-      T.catch("_tag", "NoSuchElementException", () =>
-        T.fail(new ClusterException({ message: `cannot find a leader for ${scope}` }))
-      )
+      leaderPath(scope),
+      EO.chain((s) => cli.getData(`${clusterDir}/elections/${scope}/${s}`)),
+      EO.map((b) => b.toString("utf-8") as MemberId)
     )
 
-  function runOnLeader(scope: string) {
-    return <R, E, R2, E2>(
+  const runOnLeader =
+    (scope: string) =>
+    <R, E, R2, E2>(
       onLeader: T.Effect<R, E, never>,
-      whileFollower: (leader: string) => T.Effect<R2, E2, never>
+      whileFollower: (leader: MemberId) => T.Effect<R2, E2, never>
     ) => {
       return T.gen(function* (_) {
         while (1) {
           const leader = yield* _(leaderId(scope))
-          const nodeMapped = yield* _(
-            pipe(
-              cli.getData(`${scope}/${leader}`),
-              T.chain((data) => T.getOrFail(data)["|>"](T.orDie)),
-              T.map((data) => data.toString("utf8"))
-            )
-          )
-          if (nodeMapped === nodeId) {
+          if (O.isNone(leader)) {
+            return yield* _(T.die("cannot find a leader"))
+          }
+          if (leader.value === nodeId) {
             yield* _(onLeader)
           } else {
             yield* _(
-              T.race_(cli.waitDelete(`${scope}/${leader}`), whileFollower(leader))
+              T.race_(cli.waitDelete(`${scope}/${leader}`), whileFollower(leader.value))
             )
           }
         }
       })
     }
-  }
+
+  const watchMember = (member: MemberId) => cli.waitDelete(`${membersDir}/${member}`)
+
+  const watchLeader = (scope: string) =>
+    pipe(
+      leaderPath(scope),
+      T.chain((o) =>
+        O.isNone(o)
+          ? T.die("cannot find a leader")
+          : cli.waitDelete(`${clusterDir}/elections/${scope}/${o.value}`)
+      )
+    )
 
   return {
     [ClusterSym]: ClusterSym,
-    nodeId,
     members,
-    leader,
-    clusterDir,
+    init,
+    join,
+    leave,
+    nodeId,
     memberHostPort,
     leaderId,
     runOnLeader,
-    system
+    watchLeader,
+    watchMember
   } as const
 })
 
@@ -178,9 +189,6 @@ export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
 
 export interface Singleton<ID extends string, F1 extends AM.AnyMessage> {
   id: ID
-  members: T.Effect<unknown, K.ZooError, Chunk.Chunk<string>>
-  leader: T.Effect<unknown, K.ZooError, O.Option<string>>
-  membersDir: string
   actor: ActorRef<F1>
 }
 
@@ -202,23 +210,16 @@ export const makeSingleton =
           const cluster = yield* _(Cluster)
           const system = yield* _(AS.ActorSystemTag)
           const cli = yield* _(KeeperClient)
-          const membersDir = `${cluster.clusterDir}/singletons/${id}/members`
+          const election = `singleton-${id}`
 
-          yield* _(cli.mkdir(membersDir))
+          yield* _(cluster.init(election))
 
           yield* _(
             pipe(
-              cli.create(`${membersDir}/worker_`, {
-                mode: "EPHEMERAL_SEQUENTIAL",
-                data: Buffer.from(cluster.nodeId)
-              }),
-              M.make((p) => cli.remove(p)["|>"](T.orDie))
+              cluster.join(election),
+              M.make((p) => cluster.leave(p)["|>"](T.orDie))
             )
           )
-
-          const members = cli.getChildren(membersDir)
-
-          const leader = pipe(cli.getChildren(membersDir), T.map(Chunk.head))
 
           const queue = yield* _(Q.makeUnbounded<A.PendingMessage<F1>>())
 
@@ -259,7 +260,7 @@ export const makeSingleton =
 
           yield* _(
             pipe(
-              cluster.runOnLeader(membersDir)(
+              cluster.runOnLeader(election)(
                 M.gen(function* (_) {
                   const state = yield* _(init)
                   const ref: ActorRef<F1> = yield* _(
@@ -302,9 +303,6 @@ export const makeSingleton =
 
           return {
             id,
-            members,
-            leader,
-            membersDir,
             actor
           }
         })
