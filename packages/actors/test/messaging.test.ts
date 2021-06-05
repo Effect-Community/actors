@@ -1,7 +1,11 @@
 import { Chunk } from "@effect-ts/core"
 import * as T from "@effect-ts/core/Effect"
+import * as L from "@effect-ts/core/Effect/Layer"
+import * as M from "@effect-ts/core/Effect/Managed"
 import * as Sh from "@effect-ts/core/Effect/Schedule"
 import { pipe } from "@effect-ts/core/Function"
+import { tag } from "@effect-ts/core/Has"
+import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
@@ -10,10 +14,12 @@ import { matchTag } from "@effect-ts/system/Utils"
 import * as AC from "../src/Actor"
 import type { ActorRef } from "../src/ActorRef"
 import { actorRef } from "../src/ActorRef"
-import { LiveActorSystem } from "../src/ActorSystem"
+import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
 import * as AM from "../src/Message"
 import { RemoteExpress } from "../src/Remote"
+import * as Singleton from "../src/Singleton"
+import * as SUP from "../src/Supervisor"
 import { TestKeeperConfig } from "./zookeeper"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
@@ -51,7 +57,7 @@ class Publish extends AM.Message(
 
 const HubMessages = AM.messages(Subscribe, Publish)
 
-const hub = AC.stateful(
+const handlerHub = AC.stateful(
   HubMessages,
   S.props({
     subscribed: S.prop(S.chunk(actorRef<SubscriberMessages>()))
@@ -77,19 +83,7 @@ const hub = AC.stateful(
   })
 )
 
-const Hub = Cluster.makeSingleton("hub")(
-  hub,
-  T.succeed({ subscribed: Chunk.empty<ActorRef<SendMessage | GetMessages>>() }),
-  (self) =>
-    T.gen(function* (_) {
-      yield* _(
-        T.repeat_(self.ask(new Publish({ message: "tick" })), Sh.windowed(1_000))
-      )
-      return yield* _(T.never)
-    })
-)
-
-const sub = AC.stateful(
+const handlerSub = AC.stateful(
   SubscriberMessages,
   S.chunk(S.string)
 )((s) =>
@@ -99,24 +93,58 @@ const sub = AC.stateful(
   })
 )
 
-const Sub = Cluster.makeSingleton("sub")(sub, T.succeed(Chunk.empty()), () => T.never)
+export const makeProcessService = M.gen(function* (_) {
+  const system = yield* _(ActorSystemTag)
+
+  const hub = yield* _(
+    system.make(
+      "hub",
+      SUP.none,
+      Singleton.makeSingleton(handlerHub, (self) =>
+        T.gen(function* (_) {
+          yield* _(
+            T.repeat_(self.ask(new Publish({ message: "tick" })), Sh.windowed(1_000))
+          )
+          return yield* _(T.never)
+        })
+      ),
+      {
+        subscribed: Chunk.empty<ActorRef<SendMessage | GetMessages>>()
+      }
+    )
+  )
+
+  const sub = yield* _(
+    system.make("sub", SUP.none, Singleton.makeSingleton(handlerSub), Chunk.empty())
+  )
+
+  return {
+    hub,
+    sub
+  }
+})
+
+export interface ProcessService extends _A<typeof makeProcessService> {}
+export const ProcessService = tag<ProcessService>()
+export const LiveProcessService = L.fromManaged(ProcessService)(makeProcessService)
 
 describe("Messaging", () => {
   const { it } = pipe(
-    J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](Hub.Live["+++"](Sub.Live))))
+    J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](LiveProcessService)))
   )
 
   it("communicate", () =>
     T.gen(function* (_) {
-      yield* _(Hub.ask(new Subscribe({ recipient: yield* _(Sub.actor) })))
+      const { hub, sub } = yield* _(ProcessService)
+      yield* _(hub.ask(new Subscribe({ recipient: sub })))
 
-      expect((yield* _(Sub.ask(new GetMessages()))).messages).equals(
+      expect((yield* _(sub.ask(new GetMessages()))).messages).equals(
         Chunk.single("it works")
       )
 
       yield* _(J.adjust(5_000))
 
-      expect((yield* _(Sub.ask(new GetMessages()))).messages).equals(
+      expect((yield* _(sub.ask(new GetMessages()))).messages).equals(
         Chunk.many("it works", "tick", "tick", "tick", "tick", "tick", "tick")
       )
     }))

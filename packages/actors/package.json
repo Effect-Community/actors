@@ -35,6 +35,7 @@
       "Journal",
       "Message",
       "Remote",
+      "Singleton",
       "Supervisor",
       "Transactional"
     ]

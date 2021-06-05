@@ -1,12 +1,8 @@
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
-import type { Exit } from "@effect-ts/core/Effect/Exit"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
-import * as P from "@effect-ts/core/Effect/Promise"
-import * as Q from "@effect-ts/core/Effect/Queue"
-import * as Scope from "@effect-ts/core/Effect/Scope"
 import { pipe } from "@effect-ts/core/Function"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
@@ -14,16 +10,8 @@ import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
 import * as K from "@effect-ts/keeper"
-import { KeeperClient } from "@effect-ts/keeper"
-import * as S from "@effect-ts/schema"
-import { tuple } from "@effect-ts/system/Function"
 
-import * as A from "../Actor"
-import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
-import type { Throwable } from "../common"
-import type * as AM from "../Message"
-import * as SUP from "../Supervisor"
 
 export const EO = pipe(OT.monad(T.Monad), (M) => ({
   map: M.map,
@@ -185,122 +173,3 @@ export const makeCluster = M.gen(function* (_) {
 export interface Cluster extends _A<typeof makeCluster> {}
 export const Cluster = tag<Cluster>()
 export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
-
-export interface Singleton<ID extends string, F1 extends AM.AnyMessage> {
-  id: ID
-  actor: ActorRef<F1>
-}
-
-export const makeSingleton =
-  <ID extends string>(id: ID) =>
-  <R, R2, E2, S, F1 extends AM.AnyMessage, R3, E3>(
-    stateful: A.AbstractStateful<R, S, F1>,
-    init: T.Effect<R2, E2, S>,
-    side: (self: ActorRef<F1>) => T.Effect<R3, E3, never>
-  ) => {
-    const tag_ = tag<Singleton<ID, F1>>()
-    return {
-      Tag: tag_,
-      ask: <A extends F1>(fa: A) => T.accessServiceM(tag_)((_) => _.actor.ask(fa)),
-      tell: <A extends F1>(fa: A) => T.accessServiceM(tag_)((_) => _.actor.tell(fa)),
-      actor: T.accessService(tag_)((_) => _.actor),
-      Live: L.fromManaged(tag_)(
-        M.gen(function* (_) {
-          const cluster = yield* _(Cluster)
-          const system = yield* _(AS.ActorSystemTag)
-          const cli = yield* _(KeeperClient)
-          const election = `singleton-${id}`
-
-          yield* _(cluster.init(election))
-
-          yield* _(
-            pipe(
-              cluster.join(election),
-              M.make((p) => cluster.leave(p)["|>"](T.orDie))
-            )
-          )
-
-          const queue = yield* _(Q.makeUnbounded<A.PendingMessage<F1>>())
-
-          const ask = <A extends F1>(fa: A) => {
-            return pipe(
-              P.make<Throwable, AM.ResponseOf<A>>(),
-              T.tap((promise) => Q.offer_(queue, tuple(fa, promise))),
-              T.chain(P.await)
-            )
-          }
-
-          const scope = yield* _(
-            Scope.makeScope<Exit<unknown, unknown>>()["|>"](
-              M.makeExit((_, ex) => _.close(ex))
-            )
-          )
-
-          const actor = yield* _(
-            pipe(
-              system.make(
-                `singleton/proxy/${id}`,
-                SUP.none,
-                A.stateful(
-                  stateful.messages,
-                  S.unknown
-                )(() => (msg) => {
-                  return pipe(
-                    // @ts-expect-error
-                    ask(msg.payload),
-                    T.chain((res) => msg.return(0, res))
-                  )
-                }),
-                0
-              ),
-              T.overrideForkScope(scope.scope)
-            )
-          )
-
-          yield* _(
-            pipe(
-              cluster.runOnLeader(election)(
-                M.gen(function* (_) {
-                  const state = yield* _(init)
-                  const ref: ActorRef<F1> = yield* _(
-                    system.make(`singleton/leader/${id}`, SUP.none, stateful, state)
-                  )
-
-                  return yield* _(
-                    M.fromEffect(
-                      T.gen(function* (_) {
-                        const [a, p] = yield* _(Q.take(queue))
-
-                        yield* _(ref.ask(a)["|>"](T.to(p)))
-                      })["|>"](T.forever)
-                    )
-                  )
-                })
-                  ["|>"](M.useNow)
-                  ["|>"](T.race(side(actor))),
-                (leader) =>
-                  T.gen(function* (_) {
-                    const all = yield* _(Q.takeBetween_(queue, 1, 100))
-                    const { host, port } = yield* _(cluster.memberHostPort(leader))
-
-                    const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/proxy/${id}`
-
-                    for (const [a, p] of all) {
-                      const act = yield* _(system.select(recipient))
-                      yield* _(pipe(act.ask(a), T.to(p)))
-                    }
-                  })["|>"](T.forever)
-              ),
-              T.race(cli.monitor),
-              T.forkManaged
-            )
-          )
-
-          return {
-            id,
-            actor
-          }
-        })
-      )
-    }
-  }

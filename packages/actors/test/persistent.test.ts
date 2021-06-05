@@ -1,15 +1,21 @@
 import * as T from "@effect-ts/core/Effect"
+import * as L from "@effect-ts/core/Effect/Layer"
+import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
+import { tag } from "@effect-ts/core/Has"
+import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
-import { LiveActorSystem } from "../src/ActorSystem"
+import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
 import * as AM from "../src/Message"
 import { RemoteExpress } from "../src/Remote"
+import * as Singleton from "../src/Singleton"
+import * as SUP from "../src/Supervisor"
 import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 import { TestPG } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
@@ -37,28 +43,40 @@ const statefulHandler = transactional(
   })
 )
 
-const ProcessA = Cluster.makeSingleton("process-a")(
-  statefulHandler,
-  T.succeed(0),
-  () => T.never
-)
+export const makeProcessService = M.gen(function* (_) {
+  const system = yield* _(ActorSystemTag)
+
+  const processA = yield* _(
+    system.make("process-a", SUP.none, Singleton.makeSingleton(statefulHandler), 0)
+  )
+
+  return {
+    processA
+  }
+})
+
+export interface ProcessService extends _A<typeof makeProcessService> {}
+export const ProcessService = tag<ProcessService>()
+export const LiveProcessService = L.fromManaged(ProcessService)(makeProcessService)
 
 describe("Persistent", () => {
   const { it } = pipe(
-    J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](ProcessA.Live)))
+    J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](LiveProcessService)))
   )
 
   it("persistent", () =>
     T.gen(function* (_) {
-      expect(yield* _(ProcessA.ask(new Get()))).equals(0)
+      const { processA } = yield* _(ProcessService)
 
-      yield* _(ProcessA.ask(new Increase()))
+      expect(yield* _(processA.ask(new Get()))).equals(0)
 
-      expect(yield* _(ProcessA.ask(new Get()))).equals(1)
+      yield* _(processA.ask(new Increase()))
+
+      expect(yield* _(processA.ask(new Get()))).equals(1)
 
       expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
         {
-          actor_name: "EffectTsActorsDemo(/singleton/leader/process-a)",
+          actor_name: "EffectTsActorsDemo(/process-a/leader)",
           state: '{"state":1}'
         }
       ])

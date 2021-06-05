@@ -37,7 +37,7 @@ export class Context<FC extends AM.AnyMessage> {
    *
    * @return actor reference in a task
    */
-  self = this.actorSystem.select(this.address)
+  self = this.actorSystem.select<FC>(this.address)
 
   /**
    * Creates actor and registers it to dependent actor system

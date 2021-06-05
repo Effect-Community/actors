@@ -1,6 +1,10 @@
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
+import * as L from "@effect-ts/core/Effect/Layer"
+import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
+import { tag } from "@effect-ts/core/Has"
+import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
@@ -11,6 +15,7 @@ import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
 import * as AM from "../src/Message"
 import { RemoteExpress } from "../src/Remote"
+import * as SUP from "../src/Supervisor"
 import { TestKeeperConfig } from "./zookeeper"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
@@ -44,15 +49,23 @@ const statefulHandler = AC.stateful(
   })
 )
 
-const ProcessA = Cluster.makeSingleton("process-a")(
-  statefulHandler,
-  T.succeed(0),
-  () => T.never
-)
+export const makeProcessService = M.gen(function* (_) {
+  const system = yield* _(ActorSystemTag)
+
+  const actor = yield* _(system.make("process-a", SUP.none, statefulHandler, 0))
+
+  return {
+    actor
+  }
+})
+
+export interface ProcessService extends _A<typeof makeProcessService> {}
+export const ProcessService = tag<ProcessService>()
+export const LiveProcessService = L.fromManaged(ProcessService)(makeProcessService)
 
 describe("Cluster", () => {
   const { it } = pipe(
-    J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](ProcessA.Live)))
+    J.runtime((TestEnv) => TestEnv[">+>"](AppLayer[">+>"](LiveProcessService)))
   )
 
   it("membership", () =>
@@ -66,20 +79,18 @@ describe("Cluster", () => {
 
   it("singleton", () =>
     T.gen(function* (_) {
-      const actor = yield* _(ProcessA.actor)
+      const { actor } = yield* _(ProcessService)
       const system = yield* _(ActorSystemTag)
 
       const path = yield* _(actor.path)
 
-      expect(path).equals(
-        "zio://EffectTsActorsDemo@127.0.0.1:34322/singleton/proxy/process-a"
-      )
+      expect(path).equals("zio://EffectTsActorsDemo@127.0.0.1:34322/process-a")
 
-      expect(yield* _(ProcessA.ask(new Get()))).equals(0)
+      expect(yield* _(actor.ask(new Get()))).equals(0)
 
-      yield* _(ProcessA.ask(new Increase()))
+      yield* _(actor.ask(new Increase()))
 
-      expect(yield* _(ProcessA.ask(new Get()))).equals(1)
+      expect(yield* _(actor.ask(new Get()))).equals(1)
 
       const selected = yield* _(system.select(path))
 
