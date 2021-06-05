@@ -93,8 +93,8 @@ export function makeSingleton<R, S, F1 extends AM.AnyMessage, R3, E3>(
 
         const gate = yield* _(TRef.makeCommit(O.emptyOf<ActorRef<F1>>()))
 
-        yield* _(
-          T.forkManaged(
+        return yield* _(
+          pipe(
             T.gen(function* (_) {
               while (1) {
                 const [a, p] = yield* _(Q.take(queue))
@@ -108,39 +108,40 @@ export function makeSingleton<R, S, F1 extends AM.AnyMessage, R3, E3>(
                 )) as O.Some<ActorRef<F1>>
                 yield* _(ref.value.ask(a)["|>"](T.to(p)))
               }
-            })
-          )
-        )
 
-        return yield* _(
-          cluster.runOnLeader(election)(
-            M.gen(function* (_) {
-              const ref: ActorRef<F1> = yield* _(
-                context.make("leader", SUP.none, stateful, initial)
-              )
-
-              yield* _(
-                STM.commit(TRef.set_(gate, O.some(ref)))["|>"](
-                  M.make(() => STM.commit(TRef.set_(gate, O.none)))
-                )
-              )
-
-              return yield* _(side ? side(ref) : T.never)
-            })["|>"](M.useNow),
-            (leader) =>
-              M.gen(function* (_) {
-                const { host, port } = yield* _(cluster.memberHostPort(leader))
-                const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}`
-                const ref = new ActorRefRemote<F1>(recipient, context.actorSystem)
-
-                yield* _(
-                  STM.commit(TRef.set_(gate, O.some(ref)))["|>"](
-                    M.make(() => STM.commit(TRef.set_(gate, O.none)))
+              return yield* _(T.never)
+            }),
+            T.race(
+              cluster.runOnLeader(election)(
+                M.gen(function* (_) {
+                  const ref: ActorRef<F1> = yield* _(
+                    context.make("leader", SUP.none, stateful, initial)
                   )
-                )
 
-                return yield* _(T.never)
-              })["|>"](M.useNow)
+                  yield* _(
+                    STM.commit(TRef.set_(gate, O.some(ref)))["|>"](
+                      M.make(() => STM.commit(TRef.set_(gate, O.none)))
+                    )
+                  )
+
+                  return yield* _(side ? side(ref) : T.never)
+                })["|>"](M.useNow),
+                (leader) =>
+                  M.gen(function* (_) {
+                    const { host, port } = yield* _(cluster.memberHostPort(leader))
+                    const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}`
+                    const ref = new ActorRefRemote<F1>(recipient, context.actorSystem)
+
+                    yield* _(
+                      STM.commit(TRef.set_(gate, O.some(ref)))["|>"](
+                        M.make(() => STM.commit(TRef.set_(gate, O.none)))
+                      )
+                    )
+
+                    return yield* _(T.never)
+                  })["|>"](M.useNow)
+              )
+            )
           )
         )
       })
