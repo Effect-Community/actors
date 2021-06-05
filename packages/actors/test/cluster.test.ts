@@ -14,12 +14,16 @@ import * as AC from "../src/Actor"
 import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
 import * as AM from "../src/Message"
-import { RemoteExpress } from "../src/Remote"
+import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
 import * as SUP from "../src/Supervisor"
 import { TestKeeperConfig } from "./zookeeper"
 
+const Remoting = RemotingExpress["<<<"](
+  StaticRemotingExpressConfig({ host: "127.0.0.1", port: 34322 })
+)
+
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
-  [">>>"](RemoteExpress("127.0.0.1", 34322)[">+>"](Cluster.LiveCluster))
+  [">>>"](Remoting[">+>"](Cluster.LiveCluster))
   ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
 
 const unit = S.unknown["|>"](S.brand<void>())

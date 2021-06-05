@@ -15,15 +15,25 @@ import { matchTag } from "@effect-ts/system/Utils"
 import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
 import * as AM from "../src/Message"
-import { RemoteExpress } from "../src/Remote"
+import {
+  makeRemotingExpressConfig,
+  RemotingExpress,
+  RemotingExpressConfig
+} from "../src/Remote"
 import * as Singleton from "../src/Singleton"
 import * as SUP from "../src/Supervisor"
 import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
-  [">>>"](
-    RemoteExpress("127.0.0.1", parseInt(process.env["PORT"]!))[">+>"](
-      Cluster.LiveCluster
+  [">>>"](RemotingExpress[">+>"](Cluster.LiveCluster))
+  ["<<<"](
+    L.fromEffect(RemotingExpressConfig)(
+      T.succeedWith(() =>
+        makeRemotingExpressConfig({
+          host: "127.0.0.1",
+          port: parseInt(process.env["PORT"]!)
+        })
+      )
     )
   )
   ["<+<"](
