@@ -30,8 +30,9 @@ export class Actor<F1 extends AM.AnyMessage> {
   runOp(command: EV.Command) {
     switch (command._tag) {
       case "Ask":
-        return T.chain_(AM.decodeCommand(this.messages)(command.msg), ([msg, encode]) =>
-          T.map_(this.ask(msg), encode)
+        return T.chain_(
+          AM.decodeCommand(this.messages)(command.msg),
+          ([msg, encode, encodeError]) => T.bimap_(this.ask(msg), encodeError, encode)
         )
       case "Tell":
         return T.chain_(AM.decodeCommand(this.messages)(command.msg), ([msg]) =>
@@ -73,7 +74,7 @@ export class Actor<F1 extends AM.AnyMessage> {
 export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   abstract readonly messages: AM.MessageRegistry<F1>
   abstract makeActor(
-    supervisor: SUP.Supervisor<R>,
+    supervisor: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     context: AS.Context<any>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize?: number
@@ -94,7 +95,7 @@ export interface StatefulMatcher<F1 extends AM.AnyMessage> {
         _: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
       ) => T.Effect<
         any,
-        AM.ErrorOf<AM.ExtractTagged<F1, Tag>>,
+        ActorSystemException | AM.ErrorOf<AM.ExtractTagged<F1, Tag>>,
         AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
       >
     }
@@ -102,7 +103,11 @@ export interface StatefulMatcher<F1 extends AM.AnyMessage> {
     handlers: X
   ): (
     msg: StatefulEnvelope<F1>
-  ) => T.Effect<_R<ReturnType<X[AM.TagsOf<F1>]>>, AM.ErrorOf<F1>, AM.ResponseOf<F1>>
+  ) => T.Effect<
+    _R<ReturnType<X[AM.TagsOf<F1>]>>,
+    ActorSystemException | AM.ErrorOf<F1>,
+    AM.ResponseOf<F1>
+  >
 }
 
 export function stateful<S, F1 extends AM.AnyMessage>(
@@ -114,7 +119,9 @@ export function stateful<S, F1 extends AM.AnyMessage>(
       state: REF.Ref<S>,
       context: AS.Context<F1>,
       matchTag: StatefulMatcher<F1>
-    ) => (msg: StatefulEnvelope<F1>) => T.Effect<R, AM.ErrorOf<F1>, AM.ResponseOf<F1>>
+    ) => (
+      msg: StatefulEnvelope<F1>
+    ) => T.Effect<R, ActorSystemException | AM.ErrorOf<F1>, AM.ResponseOf<F1>>
   ) => new Stateful<R, S, F1>(messages, stateSchema, receive)
 }
 
@@ -130,7 +137,9 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
       state: REF.Ref<S>,
       context: AS.Context<F1>,
       matchTag: StatefulMatcher<F1>
-    ) => (msg: StatefulEnvelope<F1>) => T.Effect<R, AM.ErrorOf<F1>, AM.ResponseOf<F1>>
+    ) => (
+      msg: StatefulEnvelope<F1>
+    ) => T.Effect<R, ActorSystemException | AM.ErrorOf<F1>, AM.ResponseOf<F1>>
   ) {
     super()
   }
@@ -138,7 +147,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
   defaultMailboxSize = 10000
 
   makeActor(
-    supervisor: SUP.Supervisor<R>,
+    supervisor: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
@@ -216,7 +225,7 @@ export class ActorProxy<R, S, F1 extends AM.AnyMessage, E> extends AbstractState
   defaultMailboxSize = 10_000
 
   makeActor(
-    supervisor: SUP.Supervisor<R>,
+    supervisor: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize

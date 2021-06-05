@@ -1,6 +1,6 @@
 import * as S from "@effect-ts/schema"
 
-export type Throwable = unknown
+export type Throwable = never
 
 export class ActorAlreadyExistsException {
   readonly _tag = "ActorAlreadyExistsException"
