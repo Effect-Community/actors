@@ -8,20 +8,15 @@ import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
+import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
-import * as ClusterConfigSym from "../src/ClusterConfig"
 import * as AM from "../src/Message"
+import { RemoteExpress } from "../src/Remote"
 import { TestKeeperConfig } from "./zookeeper"
 
-const AppLayer = Z.LiveKeeperClient["<<<"](TestKeeperConfig)[">+>"](
-  Cluster.LiveCluster["<<<"](
-    ClusterConfigSym.StaticClusterConfig({
-      sysName: "EffectTsActorsDemo",
-      host: "127.0.0.1",
-      port: 34322
-    })
-  )
-)
+const AppLayer = LiveActorSystem("EffectTsActorsDemo")
+  [">>>"](RemoteExpress("127.0.0.1", 34322)[">+>"](Cluster.LiveCluster))
+  ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
 
 const unit = S.unknown["|>"](S.brand<void>())
 
@@ -77,9 +72,9 @@ describe("Cluster", () => {
   it("singleton", () =>
     T.gen(function* (_) {
       const actor = yield* _(ProcessA.actor)
-      const cluster = yield* _(Cluster.Cluster)
+      const system = yield* _(ActorSystemTag)
 
-      const path = (yield* _(actor.path)).path
+      const path = yield* _(actor.path)
 
       expect(path).equals(
         "zio://EffectTsActorsDemo@127.0.0.1:34322/singleton/proxy/process-a"
@@ -91,6 +86,8 @@ describe("Cluster", () => {
 
       expect(yield* _(ProcessA.ask(new Get()))).equals(1)
 
-      expect(yield* _(cluster.ask(path)(new Get()))).equals(1)
+      const selected = yield* _(system.select(path))
+
+      expect(yield* _(selected.ask(new Get()))).equals(1)
     }))
 })

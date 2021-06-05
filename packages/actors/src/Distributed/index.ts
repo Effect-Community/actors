@@ -253,7 +253,7 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
         )
         const name = yield* _(
           pipe(
-            AS.resolvePath(context.address.path)["|>"](T.orDie),
+            AS.resolvePath(context.address)["|>"](T.orDie),
             T.map(([_, __, ___, actorName]) => actorName.substr(1))
           )
         )
@@ -301,7 +301,8 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                         cluster.memberHostPort(leader.value)
                       )
                       const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
-                      yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
+                      const act = yield* _(context.select(recipient))
+                      yield* _(act.ask(a)["|>"](T.to(p)))
                     }
                   } else {
                     // there is no leader, attempt to self elect
@@ -336,7 +337,8 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                           cluster.memberHostPort(leader.value)
                         )
                         const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
-                        yield* _(cluster.ask(recipient)(a)["|>"](T.to(p)))
+                        const act = yield* _(context.select(recipient))
+                        yield* _(act.ask(a)["|>"](T.to(p)))
                       }
                     }
                   }

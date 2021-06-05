@@ -166,7 +166,7 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
       return T.accessServicesM({ prov: StateStorageAdapter })(({ prov }) =>
         prov.transaction(
           pipe(
-            AS.resolvePath(context.address.path)["|>"](T.orDie),
+            AS.resolvePath(context.address)["|>"](T.orDie),
             T.map(([sysName, __, ___, actorName]) => `${sysName}(${actorName})`),
             T.chain((actorName) =>
               pipe(

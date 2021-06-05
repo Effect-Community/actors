@@ -1,15 +1,16 @@
-import type * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
+import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as S from "@effect-ts/schema"
+import * as Encoder from "@effect-ts/schema/Encoder"
+import * as Parser from "@effect-ts/schema/Parser"
 import * as Th from "@effect-ts/schema/These"
 import { pipe } from "@effect-ts/system/Function"
 
 import type * as A from "../Actor"
-import { ActorSystem } from "../ActorSystem"
-import * as AA from "../Address"
+import { ActorSystem, resolvePath } from "../ActorSystem"
 import type { Throwable } from "../common"
 import * as Envelope from "../Envelope"
-import type * as AM from "../Message"
+import * as AM from "../Message"
 
 export class ActorRefParserE
   extends S.DefaultLeafE<{
@@ -39,7 +40,7 @@ export function withSystem(s: ActorSystem) {
   }
 }
 
-export function actorRef<F1 extends AM.AnyMessage>(registry: AM.MessageRegistry<F1>) {
+export function actorRef<F1 extends AM.AnyMessage>() {
   return pipe(
     S.identity(
       (_): _ is ActorRef<F1> =>
@@ -50,9 +51,7 @@ export function actorRef<F1 extends AM.AnyMessage>(registry: AM.MessageRegistry<
       if (globSys instanceof ActorSystem) {
         const s = S.string.Parser(u)
         if (s.effect._tag === "Right") {
-          return Th.succeed(
-            new ActorRefRemote(AA.address(s.effect.right.get(0), registry), globSys)
-          )
+          return Th.succeed(new ActorRefRemote(s.effect.right.get(0), globSys))
         }
         return Th.fail(
           S.leafE(new ActorRefParserE({ actual: u, message: "malformed" }))
@@ -67,6 +66,8 @@ export function actorRef<F1 extends AM.AnyMessage>(registry: AM.MessageRegistry<
 }
 
 export interface ActorRef<F1 extends AM.AnyMessage> {
+  readonly _F1: F1
+
   /**
    * Send a message to an actor as `ask` interaction pattern -
    * caller is blocked until the response is received
@@ -90,24 +91,18 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * Get referential absolute actor path
    * @return
    */
-  readonly path: T.UIO<AA.Address<F1>>
+  readonly path: T.UIO<string>
 
   /**
    * Stops actor and all its children
    */
-  readonly stop: T.IO<Throwable, CH.Chunk<void>>
-
-  /**
-   * Contains the Schema for the commands and responses of the ActorRef
-   */
-  readonly messages: AM.MessageRegistry<F1>
+  readonly stop: T.IO<Throwable, Chunk.Chunk<void>>
 }
 
 export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
-  constructor(
-    private readonly address: AA.Address<F1>,
-    private readonly actor: A.Actor<F1>
-  ) {}
+  readonly _F1!: F1
+
+  constructor(private readonly address: string, private readonly actor: A.Actor<F1>) {}
 
   ask<A extends F1>(msg: A) {
     return this.actor.ask(msg)
@@ -118,37 +113,77 @@ export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
 
   readonly stop = this.actor.stop
   readonly path = T.succeed(this.address)
-  readonly messages = this.actor.messages
 }
 
 export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
-  constructor(
-    private readonly address: AA.Address<F1>,
-    private readonly system: ActorSystem
-  ) {}
+  readonly _F1!: F1
+
+  constructor(private readonly address: string, private readonly system: ActorSystem) {}
+
+  private runEnvelope(envelope: Envelope.Envelope) {
+    const envOp = envelope.command
+    const system = this.system
+    const address = this.address
+    return T.gen(function* (_) {
+      const [, host, port] = yield* _(resolvePath(address))
+      const response = yield* _(
+        T.promise(() =>
+          fetch(`http://${host}:${port}/cmd`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              _tag:
+                envOp._tag === "Ask" || envOp._tag === "Tell"
+                  ? envOp.msg["_tag"]
+                  : undefined,
+              op: envOp._tag,
+              path: envelope.recipient,
+              request:
+                envOp._tag === "Ask" || envOp._tag === "Tell"
+                  ? Encoder.for(envOp.msg[AM.RequestSchemaSymbol])(envOp.msg)
+                  : undefined
+            })
+          }).then((r) => r.json())
+        )
+      )
+
+      return envOp._tag === "Ask"
+        ? yield* _(
+            S.condemnDie((u) =>
+              withSystem(system)(() =>
+                Parser.for((envOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol])(u)
+              )
+            )(response.response)
+          )
+        : envOp._tag === "Stop"
+        ? Chunk.from(response.stops)
+        : yield* _(T.unit)
+    })
+  }
 
   ask<A extends F1>(msg: A): T.IO<Throwable, AM.ResponseOf<A>>
   ask<A extends F1>(msg: A) {
-    return this.system.runEnvelope({
+    return this.runEnvelope({
       command: Envelope.ask(msg),
-      recipient: this.address.path
+      recipient: this.address
     })
   }
 
   tell(msg: F1): T.IO<Throwable, void>
   tell(msg: F1) {
-    return this.system.runEnvelope({
+    return this.runEnvelope({
       command: Envelope.tell(msg),
-      recipient: this.address.path
+      recipient: this.address
     })
   }
 
-  // @ts-expect-error
-  readonly stop: T.IO<Throwable, CH.Chunk<void>> = this.system.runEnvelope({
+  readonly stop: T.IO<Throwable, Chunk.Chunk<void>> = this.runEnvelope({
     command: Envelope.stop(),
-    recipient: this.address.path
+    recipient: this.address
   })
 
-  readonly path: T.UIO<AA.Address<F1>> = T.succeed(this.address)
-  readonly messages = this.address.messages
+  readonly path: T.UIO<string> = T.succeed(this.address)
 }

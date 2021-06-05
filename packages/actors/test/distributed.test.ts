@@ -9,27 +9,20 @@ import * as S from "@effect-ts/schema"
 import { tag } from "@effect-ts/system/Has"
 import { matchTag, matchTag_ } from "@effect-ts/system/Utils"
 
-import { ActorSystemTag } from "../src/ActorSystem"
+import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
-import * as ClusterConfig from "../src/ClusterConfig"
 import * as D from "../src/Distributed"
 import * as AM from "../src/Message"
+import { RemoteExpress } from "../src/Remote"
 import * as SUP from "../src/Supervisor"
 import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 import { TestPG as TestPGConfig } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
-const AppLayer = Cluster.LiveCluster["<+<"](
-  L.all(
-    Z.LiveKeeperClient["<<<"](TestKeeperConfig),
-    LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPGConfig)),
-    ClusterConfig.StaticClusterConfig({
-      sysName: "EffectTsActorsDemo",
-      host: "127.0.0.1",
-      port: 34322
-    })
-  )
-)
+const AppLayer = LiveActorSystem("EffectTsActorsDemo")
+  [">>>"](RemoteExpress("127.0.0.1", 34322)[">+>"](Cluster.LiveCluster))
+  ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
+  ["<+<"](LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPGConfig)))
 
 class User extends S.Model<User>()(
   S.props({ _tag: S.prop(S.literal("User")), id: S.prop(S.string) })

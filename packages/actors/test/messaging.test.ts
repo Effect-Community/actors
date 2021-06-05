@@ -10,20 +10,15 @@ import { matchTag } from "@effect-ts/system/Utils"
 import * as AC from "../src/Actor"
 import type { ActorRef } from "../src/ActorRef"
 import { actorRef } from "../src/ActorRef"
+import { LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
-import * as ClusterConfigSym from "../src/ClusterConfig"
 import * as AM from "../src/Message"
+import { RemoteExpress } from "../src/Remote"
 import { TestKeeperConfig } from "./zookeeper"
 
-const AppLayer = Z.LiveKeeperClient["<<<"](TestKeeperConfig)[">+>"](
-  Cluster.LiveCluster["<<<"](
-    ClusterConfigSym.StaticClusterConfig({
-      sysName: "EffectTsActorsDemo",
-      host: "127.0.0.1",
-      port: 34322
-    })
-  )
-)
+const AppLayer = LiveActorSystem("EffectTsActorsDemo")
+  [">>>"](RemoteExpress("127.0.0.1", 34322)[">+>"](Cluster.LiveCluster))
+  ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
 
 const unit = S.unknown["|>"](S.brand<void>())
 
@@ -40,10 +35,11 @@ class GetMessages extends AM.Message(
 ) {}
 
 const SubscriberMessages = AM.messages(SendMessage, GetMessages)
+type SubscriberMessages = AM.TypeOf<typeof SubscriberMessages>
 
 class Subscribe extends AM.Message(
   "Subscribe",
-  S.props({ recipient: S.prop(actorRef(SubscriberMessages)) }),
+  S.props({ recipient: S.prop(actorRef<SubscriberMessages>()) }),
   unit
 ) {}
 
@@ -58,7 +54,7 @@ const HubMessages = AM.messages(Subscribe, Publish)
 const hub = AC.stateful(
   HubMessages,
   S.props({
-    subscribed: S.prop(S.chunk(actorRef(SubscriberMessages)))
+    subscribed: S.prop(S.chunk(actorRef<SubscriberMessages>()))
   })
 )((s) =>
   matchTag({

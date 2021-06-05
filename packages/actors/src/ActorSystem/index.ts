@@ -1,4 +1,4 @@
-import { Chunk } from "@effect-ts/core"
+import { Tagged } from "@effect-ts/core/Case"
 import * as MAP from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as HS from "@effect-ts/core/Collections/Immutable/HashSet"
 import * as T from "@effect-ts/core/Effect"
@@ -6,26 +6,20 @@ import * as L from "@effect-ts/core/Effect/Layer"
 import * as REF from "@effect-ts/core/Effect/Ref"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
-import * as S from "@effect-ts/schema"
-import * as Encoder from "@effect-ts/schema/Encoder"
-import * as Parser from "@effect-ts/schema/Parser"
+import * as St from "@effect-ts/core/Structural"
 import type { HasClock } from "@effect-ts/system/Clock"
 import { pipe } from "@effect-ts/system/Function"
 
 import type * as A from "../Actor"
 import * as AR from "../ActorRef"
-import * as AA from "../Address"
-import type { Throwable } from "../common"
 import {
   ActorAlreadyExistsException,
   ErrorMakingActorException,
   InvalidActorName,
   InvalidActorPath,
-  NoRemoteSupportException,
   NoSuchActorException
 } from "../common"
-import type * as EN from "../Envelope"
-import * as AM from "../Message"
+import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
 /**
@@ -33,16 +27,18 @@ import type * as SUP from "../Supervisor"
  */
 export class Context<FC extends AM.AnyMessage> {
   constructor(
-    readonly address: AA.Address<FC>,
+    readonly address: string,
     readonly actorSystem: ActorSystem,
     readonly childrenRef: REF.Ref<HS.HashSet<AR.ActorRef<any>>>
   ) {}
+
   /**
    * Accessor for self actor reference
    *
    * @return actor reference in a task
    */
   self = this.actorSystem.select(this.address)
+
   /**
    * Creates actor and registers it to dependent actor system
    *
@@ -83,24 +79,19 @@ export class Context<FC extends AM.AnyMessage> {
    * @tparam F1 - actor's DSL type
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
-  select<F1 extends AM.AnyMessage>(address: AA.Address<F1>) {
+  select<F1 extends AM.AnyMessage>(address: string) {
     return this.actorSystem.select<F1>(address)
   }
-
-  lookup<F1 extends AM.AnyMessage>(address: AA.Address<F1>) {
-    return this.actorSystem.lookup<F1>(address)
-  }
 }
 
-export type RemoteConfig = {
+export class RemoteConfig extends Tagged("RemoteConfig")<{
   host: string
   port: number
-}
+}> {}
 
 export class ActorSystem {
   constructor(
     readonly actorSystemName: string,
-    readonly config: O.Option<string>,
     readonly remoteConfig: O.Option<RemoteConfig>,
     readonly refActorMap: REF.Ref<MAP.HashMap<string, A.Actor<any>>>,
     readonly parentActor: O.Option<string>
@@ -146,13 +137,12 @@ export class ActorSystem {
       T.let("path", (_) =>
         buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
       ),
-      T.let("address", (_) => AA.address(_.path, stateful.messages)),
+      T.let("address", (_) => _.path),
       T.let(
         "derivedSystem",
         (_) =>
           new ActorSystem(
             this.actorSystemName,
-            this.config,
             this.remoteConfig,
             this.refActorMap,
             O.some(_.finalName)
@@ -171,35 +161,6 @@ export class ActorSystem {
       ),
       T.tap((_) => REF.set_(this.refActorMap, MAP.set_(_.map, _.finalName, _.actor))),
       T.map((_) => new AR.ActorRefLocal(_.address, _.actor))
-    )
-  }
-
-  selectOrMake<R, S, F1 extends AM.AnyMessage>(
-    actorName: string,
-    sup: SUP.Supervisor<R>,
-    init: S,
-    stateful: A.AbstractStateful<R, S, F1>
-  ): T.Effect<
-    R & HasClock,
-    | InvalidActorPath
-    | InvalidActorName
-    | ActorAlreadyExistsException
-    | ErrorMakingActorException,
-    AR.ActorRef<F1>
-  > {
-    return pipe(
-      T.do,
-      T.bind("finalName", (_) =>
-        buildFinalName(
-          O.getOrElse_(this.parentActor, () => ""),
-          actorName
-        )
-      ),
-      T.let("path", (_) =>
-        buildPath(this.actorSystemName, _.finalName, this.remoteConfig)
-      ),
-      T.chain((_) => this.lookup(AA.address(_.path, stateful.messages))),
-      T.chain(O.fold(() => this.make(actorName, sup, stateful, init), T.succeed))
     )
   }
 
@@ -227,169 +188,70 @@ export class ActorSystem {
    * @return task if actor reference. Selection process might fail with "Actor not found error"
    */
   select<F1 extends AM.AnyMessage>(
-    address: AA.Address<F1>
-  ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, AR.ActorRef<F1>> {
-    return pipe(
-      this.lookup(address),
-      T.chain(O.fold(() => T.fail(new NoSuchActorException(address.path)), T.succeed))
-    )
-  }
-
-  lookup<F1 extends AM.AnyMessage>(
-    address: AA.Address<F1>
-  ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
-    return pipe(
-      T.do,
-      T.bind("solvedPath", (_) => resolvePath(address.path)),
-      T.let("pathActSysName", (_) => _.solvedPath[0]),
-      T.let("addr", (_) => _.solvedPath[1]),
-      T.let("port", (_) => _.solvedPath[2]),
-      T.let("actorName", (_) => _.solvedPath[3]),
-      T.bind("actorMap", (_) => REF.get(this.refActorMap)),
-      T.chain((_) => {
-        if (_.pathActSysName === this.actorSystemName) {
-          return pipe(
-            T.succeed(_),
-            T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
-            T.chain((_) =>
-              O.fold_(
-                _.actorRef,
-                () => T.succeed(O.none),
-                (actor: A.Actor<F1>) =>
-                  T.succeed(O.some(new AR.ActorRefLocal(address, actor)))
-              )
-            )
-          )
-        } else {
-          return T.die(new NoRemoteSupportException())
-        }
-      })
-    )
-  }
-
-  unsafeLookup<F1 extends AM.AnyMessage>(
     address: string
-  ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
+  ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("solvedPath", (_) => resolvePath(address)),
       T.let("pathActSysName", (_) => _.solvedPath[0]),
       T.let("addr", (_) => _.solvedPath[1]),
       T.let("port", (_) => _.solvedPath[2]),
+      T.let("rc", ({ addr, port }) =>
+        `${addr}:${port}` === "0.0.0.0:0000"
+          ? O.none
+          : O.some(new RemoteConfig({ host: addr, port }))
+      ),
       T.let("actorName", (_) => _.solvedPath[3]),
       T.bind("actorMap", (_) => REF.get(this.refActorMap)),
-      T.chain((_) => {
-        if (_.pathActSysName === this.actorSystemName) {
-          return pipe(
-            T.succeed(_),
-            T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
-            T.chain((_) =>
-              O.fold_(
-                _.actorRef,
-                () => T.succeed(O.none),
-                (actor: A.Actor<F1>) =>
-                  T.succeed(
-                    O.some(
-                      new AR.ActorRefLocal(
-                        new AA.Address({ messages: actor.messages, path: address }),
-                        actor
-                      )
-                    )
-                  )
-              )
+      T.chain((_) =>
+        pipe(
+          T.succeed(_),
+          T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
+          T.chain((_) =>
+            O.fold_(
+              _.actorRef,
+              () =>
+                St.equals(_.rc, this.remoteConfig)
+                  ? T.fail(new NoSuchActorException(address))
+                  : T.succeed(new AR.ActorRefRemote(address, this) as AR.ActorRef<F1>),
+              (actor: A.Actor<F1>) =>
+                T.succeed(new AR.ActorRefLocal(address, actor) as AR.ActorRef<F1>)
             )
           )
-        } else {
-          return T.die(new NoRemoteSupportException())
-        }
-      })
+        )
+      )
     )
   }
 
-  runEnvelope(
-    envelope: EN.Envelope
-  ): T.Effect<unknown, InvalidActorPath | NoSuchActorException | Throwable, unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const self = this
+  local<F1 extends AM.AnyMessage>(
+    address: string
+  ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, A.Actor<F1>> {
     return pipe(
       T.do,
-      T.bind("solvedPath", (_) => resolvePath(envelope.recipient)),
+      T.bind("solvedPath", (_) => resolvePath(address)),
       T.let("pathActSysName", (_) => _.solvedPath[0]),
       T.let("addr", (_) => _.solvedPath[1]),
       T.let("port", (_) => _.solvedPath[2]),
+      T.let("rc", ({ addr, port }) =>
+        `${addr}:${port}` === "0.0.0.0:0000"
+          ? O.none
+          : O.some(new RemoteConfig({ host: addr, port }))
+      ),
       T.let("actorName", (_) => _.solvedPath[3]),
       T.bind("actorMap", (_) => REF.get(this.refActorMap)),
-      T.chain((params) => {
-        if (
-          params.pathActSysName === this.actorSystemName &&
-          ((this.remoteConfig._tag === "Some" &&
-            this.remoteConfig.value.host === params.addr &&
-            this.remoteConfig.value.port === params.port) ||
-            this.remoteConfig._tag === "None")
-        ) {
-          return pipe(
-            T.succeed(params),
-            T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
-            T.chain((_) =>
-              O.fold_(
-                _.actorRef,
-                () => T.fail(new NoSuchActorException(envelope.recipient)),
-                (actor: A.Actor<any>) => actor.runOp(envelope.command)
-              )
+      T.chain((_) =>
+        pipe(
+          T.succeed(_),
+          T.let("actorRef", (_) => MAP.get_(_.actorMap, _.actorName)),
+          T.chain((_) =>
+            O.fold_(
+              _.actorRef,
+              () => T.fail(new NoSuchActorException(address)),
+              (actor: A.Actor<F1>) => T.succeed(actor)
             )
           )
-        } else {
-          if (
-            this.remoteConfig._tag === "Some" &&
-            (this.remoteConfig.value.host !== params.addr ||
-              this.remoteConfig.value.port !== params.port)
-          ) {
-            const envOp = envelope.command
-
-            return T.gen(function* (_) {
-              const response = yield* _(
-                T.promise(() =>
-                  fetch(`http://${params.addr}:${params.port}/cmd`, {
-                    method: "POST",
-                    headers: {
-                      Accept: "application/json",
-                      "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                      _tag:
-                        envOp._tag === "Ask" || envOp._tag === "Tell"
-                          ? envOp.msg["_tag"]
-                          : undefined,
-                      op: envOp._tag,
-                      path: envelope.recipient,
-                      request:
-                        envOp._tag === "Ask" || envOp._tag === "Tell"
-                          ? Encoder.for(envOp.msg[AM.RequestSchemaSymbol])(envOp.msg)
-                          : undefined
-                    })
-                  }).then((r) => r.json())
-                )
-              )
-
-              return envOp._tag === "Ask"
-                ? yield* _(
-                    S.condemnDie((u) =>
-                      AR.withSystem(self)(() =>
-                        Parser.for(
-                          (envOp.msg as AM.AnyMessage)[AM.ResponseSchemaSymbol]
-                        )(u)
-                      )
-                    )(response.response)
-                  )
-                : envOp._tag === "Stop"
-                ? Chunk.from(response.stops)
-                : yield* _(T.unit)
-            })
-          }
-
-          return T.die(new NoRemoteSupportException())
-        }
-      })
+        )
+      )
     )
   }
 }
@@ -405,12 +267,11 @@ function buildPath(
   actorPath: string,
   remoteConfig: O.Option<RemoteConfig>
 ): string {
-  const host = pipe(
+  return `zio://${actorSystemName}@${pipe(
     remoteConfig,
-    O.map((c) => c.host + ":" + c.port),
+    O.map(({ host, port }) => `${host}:${port}`),
     O.getOrElse(() => "0.0.0.0:0000")
-  )
-  return `zio://${actorSystemName}@${host}${actorPath}`
+  )}${actorPath}`
 }
 
 const regexFullPath =
@@ -418,7 +279,11 @@ const regexFullPath =
 
 export function resolvePath(
   path: string
-): T.Effect<unknown, InvalidActorPath, readonly [string, string, number, string]> {
+): T.Effect<
+  unknown,
+  InvalidActorPath,
+  readonly [sysName: string, host: string, port: number, actor: string]
+> {
   const match = path.match(regexFullPath)
   if (match) {
     return T.succeed([match[1], match[2], parseInt(match[3], 10), "/" + match[4]])
@@ -426,11 +291,7 @@ export function resolvePath(
   return T.fail(new InvalidActorPath(path))
 }
 
-export function make(
-  sysName: string,
-  configFile: O.Option<string>,
-  remoteConfig: O.Option<RemoteConfig> = O.none
-) {
+export function make(sysName: string, remoteConfig: O.Option<RemoteConfig> = O.none) {
   return pipe(
     T.do,
     T.bind("initActorRefMap", (_) =>
@@ -438,7 +299,7 @@ export function make(
     ),
     T.let(
       "actorSystem",
-      (_) => new ActorSystem(sysName, O.none, remoteConfig, _.initActorRefMap, O.none)
+      (_) => new ActorSystem(sysName, remoteConfig, _.initActorRefMap, O.none)
     ),
     T.map((_) => _.actorSystem)
   )

@@ -14,24 +14,17 @@ import * as O from "@effect-ts/core/Option"
 import * as OT from "@effect-ts/core/OptionT"
 import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
-import * as Ex from "@effect-ts/express"
 import type { ZooError } from "@effect-ts/keeper"
 import * as K from "@effect-ts/keeper"
 import { KeeperClient } from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
-import * as Encoder from "@effect-ts/schema/Encoder"
-import * as Parser from "@effect-ts/schema/Parser"
 import { tuple } from "@effect-ts/system/Function"
 import type { NoSuchElementException } from "@effect-ts/system/GlobalExceptions"
-import * as exp from "express"
 
 import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
-import { withSystem } from "../ActorRef"
 import * as AS from "../ActorSystem"
-import { ClusterConfig } from "../ClusterConfig"
 import type { Throwable } from "../common"
-import * as Envelope from "../Envelope"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
@@ -55,168 +48,36 @@ export class ClusterException extends Tagged("ClusterException")<{
   readonly message: string
 }> {}
 
-export const CallPayload = S.props({
-  _tag: S.prop(S.string),
-  op: S.prop(S.literal("Ask", "Tell", "Stop")).opt(),
-  path: S.prop(S.string),
-  request: S.prop(S.unknown).opt()
-})
-
-export const decodePayload = CallPayload.Parser["|>"](S.condemnFail)
-export const encodePayload = CallPayload.Encoder
-
 export class ActorError extends Tagged("ActorError")<{
   readonly message: string
 }> {}
 
 export const makeCluster = M.gen(function* (_) {
-  const { host, port, sysName } = yield* _(ClusterConfig)
   const cli = yield* _(K.KeeperClient)
-  const system = yield* _(AS.make(sysName, O.none, O.some({ host, port })))
+  const system = yield* _(AS.ActorSystemTag)
   const clusterDir = `/cluster/${system.actorSystemName}`
   const membersDir = `${clusterDir}/members`
+
+  if (O.isNone(system.remoteConfig)) {
+    return yield* _(
+      T.die(`actor system ${system.actorSystemName} doesn't support remoting`)
+    )
+  }
 
   yield* _(cli.mkdir(membersDir))
 
   const prefix = `${membersDir}/member_`
 
-  const p = yield* _(P.make<never, void>())
-
-  yield* _(
-    T.forkManaged(
-      pipe(
-        T.gen(function* (_) {
-          yield* _(
-            Ex.post("/cmd", Ex.classic(exp.json()), (req, res) =>
-              T.gen(function* (_) {
-                const body = req.body
-                const payload = yield* _(decodePayload(body))
-
-                const actor = yield* _(system.unsafeLookup(payload.path))
-
-                if (actor._tag === "Some") {
-                  switch (payload.op) {
-                    case "Ask": {
-                      const msgArgs = yield* _(
-                        S.condemnFail((u) =>
-                          withSystem(system)(() =>
-                            Parser.for(
-                              actor.value.messages[payload._tag].RequestSchema
-                            )(u)
-                          )
-                        )(payload.request)
-                      )
-
-                      const msg = new actor.value.messages[payload._tag](msgArgs)
-
-                      const resp = yield* _(
-                        actor.value.ask(msg)["|>"](
-                          T.mapError(
-                            (s) =>
-                              new ActorError({
-                                message: `actor error: ${JSON.stringify(s)}`
-                              })
-                          )
-                        )
-                      )
-
-                      res.send(
-                        JSON.stringify({
-                          response: Encoder.for(
-                            actor.value.messages[payload._tag].ResponseSchema
-                          )(resp)
-                        })
-                      )
-
-                      break
-                    }
-                    case "Tell": {
-                      const msgArgs = yield* _(
-                        S.condemnFail((u) =>
-                          withSystem(system)(() =>
-                            Parser.for(
-                              actor.value.messages[payload._tag].RequestSchema
-                            )(u)
-                          )
-                        )(payload.request)
-                      )
-
-                      const msg = new actor.value.messages[payload._tag](msgArgs)
-
-                      yield* _(
-                        actor.value.tell(msg)["|>"](
-                          T.mapError(
-                            (s) =>
-                              new ActorError({
-                                message: `actor error: ${JSON.stringify(s)}`
-                              })
-                          )
-                        )
-                      )
-
-                      res.send(JSON.stringify({ tell: true }))
-
-                      break
-                    }
-                    case "Stop": {
-                      const stops = yield* _(
-                        actor.value.stop["|>"](
-                          T.mapError(
-                            (s) =>
-                              new ActorError({
-                                message: `actor error: ${JSON.stringify(s)}`
-                              })
-                          )
-                        )
-                      )
-
-                      res.send(JSON.stringify({ stops: Chunk.toArray(stops) }))
-
-                      break
-                    }
-                  }
-                } else {
-                  yield* _(
-                    T.succeedWith(() => {
-                      res.status(500).send({ message: `actor not found` })
-                    })
-                  )
-                }
-              })
-                ["|>"](
-                  T.catchTag("CondemnException", (s) =>
-                    T.succeedWith(() => res.status(500).send({ message: s.message }))
-                  )
-                )
-                ["|>"](
-                  T.catchTag("ActorError", (s) =>
-                    T.succeedWith(() => res.status(500).send({ message: s.message }))
-                  )
-                )
-                ["|>"](
-                  T.catchAll((s) =>
-                    T.succeedWith(() =>
-                      res.status(500).send({ message: `invalid actor path: ${s.path}` })
-                    )
-                  )
-                )
-            )
-          )
-          yield* _(P.succeed_(p, void 0))
-          return yield* _(T.never)
-        }),
-        T.provideSomeLayer(Ex.LiveExpress("0.0.0.0", port))
-      )
-    )
-  )
-
-  yield* _(P.await(p))
-
   const nodePath = yield* _(
     cli
       .create(prefix, {
         mode: "EPHEMERAL_SEQUENTIAL",
-        data: Buffer.from(JSON.stringify({ host, port }))
+        data: Buffer.from(
+          JSON.stringify({
+            host: system.remoteConfig.value.host,
+            port: system.remoteConfig.value.port
+          })
+        )
       })
       ["|>"](M.make((p) => cli.remove(p)["|>"](T.orDie)))
   )
@@ -298,17 +159,6 @@ export const makeCluster = M.gen(function* (_) {
     }
   }
 
-  function ask(path: string) {
-    return <F extends AM.AnyMessage>(
-      msg: F
-    ): T.Effect<unknown, unknown, AM.ResponseOf<F>> =>
-      // @ts-expect-error
-      system.runEnvelope({
-        command: Envelope.ask(msg),
-        recipient: path
-      })
-  }
-
   return {
     [ClusterSym]: ClusterSym,
     nodeId,
@@ -318,18 +168,13 @@ export const makeCluster = M.gen(function* (_) {
     memberHostPort,
     leaderId,
     runOnLeader,
-    system,
-    host,
-    port,
-    ask
+    system
   } as const
 })
 
 export interface Cluster extends _A<typeof makeCluster> {}
 export const Cluster = tag<Cluster>()
-export const LiveCluster = L.fromManaged(Cluster)(makeCluster)[">+>"](
-  L.fromEffect(AS.ActorSystemTag)(T.accessService(Cluster)((_) => _.system))
-)
+export const LiveCluster = L.fromManaged(Cluster)(makeCluster)
 
 export interface Singleton<ID extends string, F1 extends AM.AnyMessage> {
   id: ID
@@ -441,7 +286,8 @@ export const makeSingleton =
                     const recipient = `zio://${system.actorSystemName}@${host}:${port}/singleton/proxy/${id}`
 
                     for (const [a, p] of all) {
-                      yield* _(pipe(cluster.ask(recipient)(a), T.to(p)))
+                      const act = yield* _(system.select(recipient))
+                      yield* _(pipe(act.ask(a), T.to(p)))
                     }
 
                     if (all.length === 0) {

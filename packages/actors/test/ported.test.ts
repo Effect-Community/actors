@@ -10,8 +10,6 @@ import { matchTag } from "@effect-ts/system/Utils"
 
 import * as AC from "../src/Actor"
 import * as AS from "../src/ActorSystem"
-import * as AA from "../src/Address"
-import * as EN from "../src/Envelope"
 import * as ESS from "../src/EventSourcedStateful"
 import * as J from "../src/Journal"
 import * as AM from "../src/Message"
@@ -141,7 +139,7 @@ describe("Actor", () => {
       T.bind("system", () => AS.make("test1", O.none)),
       T.tap((_) => _.system.make("actor1", SUP.none, handler, 0)),
       T.bind("actor", (_) =>
-        _.system.select(AA.address("zio://test1@0.0.0.0:0000/actor1", Message))
+        _.system.select<Message>("zio://test1@0.0.0.0:0000/actor1")
       ),
       T.tap((_) => _.actor.tell(new Increase())),
       T.bind("c1", (_) => _.actor.ask(new Get())),
@@ -209,33 +207,4 @@ describe("Actor", () => {
 
     return program
   })
-
-  it("should handle envelope", () =>
-    pipe(
-      T.do,
-      T.bind("system", () => AS.make("test1", O.none)),
-      T.bind("actor", (_) => _.system.make("actor1", SUP.none, handler, 0)),
-      T.bind("address", (_) => _.actor.path),
-      T.tap((_) =>
-        _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Increase" }), _.address.path))
-      ),
-      T.tap((_) =>
-        _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Increase" }), _.address.path))
-      ),
-      T.bind("c1", (_) =>
-        _.system.runEnvelope(EN.envelope(EN.ask({ _tag: "Get" }), _.address.path))
-      ),
-      T.tap((_) =>
-        _.system.runEnvelope(EN.envelope(EN.tell({ _tag: "Reset" }), _.address.path))
-      ),
-      T.bind("c2", (_) =>
-        _.system.runEnvelope(EN.envelope(EN.ask({ _tag: "Get" }), _.address.path))
-      ),
-      T.tap((result) =>
-        T.succeedWith(() => {
-          expect(result.c1).toEqual(2)
-          expect(result.c2).toEqual(0)
-        })
-      )
-    ))
 })
