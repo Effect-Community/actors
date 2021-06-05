@@ -76,9 +76,9 @@ export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   abstract makeActor(
     supervisor: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     context: AS.Context<any>,
-    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
+    optOutActorSystem: () => T.Effect<unknown, ActorSystemException, void>,
     mailboxSize?: number
-  ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<F1>>
+  ): (initial: S) => T.Effect<R & HasClock, ActorSystemException, Actor<F1>>
 }
 
 export type StatefulEnvelope<F1 extends AM.AnyMessage> = {

@@ -15,7 +15,7 @@ import { pipe } from "@effect-ts/system/Function"
 import type * as A from "../Actor"
 import * as AR from "../ActorRef"
 import * as AA from "../Address"
-import type { Throwable } from "../common"
+import type { ActorSystemException, Throwable } from "../common"
 import {
   ActorAlreadyExistsException,
   ErrorMakingActorException,
@@ -56,14 +56,10 @@ export class Context<FC extends AM.AnyMessage> {
    */
   make<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
-    sup: SUP.Supervisor<R>,
+    sup: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     stateful: A.AbstractStateful<R, S, F1>,
     init: S
-  ): T.Effect<
-    R & HasClock,
-    ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
-    AR.ActorRef<F1>
-  > {
+  ): T.Effect<R & HasClock, ActorSystemException, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("actorRef", () => this.actorSystem.make(actorName, sup, stateful, init)),
@@ -119,14 +115,10 @@ export class ActorSystem {
    */
   make<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
-    sup: SUP.Supervisor<R>,
+    sup: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     stateful: A.AbstractStateful<R, S, F1>,
     init: S
-  ): T.Effect<
-    R & HasClock,
-    ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
-    AR.ActorRef<F1>
-  > {
+  ): T.Effect<R & HasClock, ActorSystemException, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("map", () => REF.get(this.refActorMap)),
@@ -140,7 +132,7 @@ export class ActorSystem {
         O.fold_(
           MAP.lookup_(_.map, _.finalName),
           () => T.unit,
-          () => T.fail(new ActorAlreadyExistsException(_.finalName))
+          () => T.fail(ActorAlreadyExistsException(_.finalName))
         )
       ),
       T.let("path", (_) =>
@@ -166,7 +158,7 @@ export class ActorSystem {
             new Context(_.address, _.derivedSystem, _.childrenSet),
             () => this.dropFromActorMap(_.path, _.childrenSet)
           )(init),
-          T.catchAll((e) => T.fail(new ErrorMakingActorException(e)))
+          T.catchAll((e) => T.fail(ErrorMakingActorException(e)))
         )
       ),
       T.tap((_) =>
@@ -178,17 +170,10 @@ export class ActorSystem {
 
   selectOrMake<R, S, F1 extends AM.AnyMessage>(
     actorName: string,
-    sup: SUP.Supervisor<R>,
+    sup: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     init: S,
     stateful: A.AbstractStateful<R, S, F1>
-  ): T.Effect<
-    R & HasClock,
-    | InvalidActorPath
-    | InvalidActorName
-    | ActorAlreadyExistsException
-    | ErrorMakingActorException,
-    AR.ActorRef<F1>
-  > {
+  ): T.Effect<R & HasClock, ActorSystemException, AR.ActorRef<F1>> {
     return pipe(
       T.do,
       T.bind("finalName", (_) =>
@@ -230,16 +215,16 @@ export class ActorSystem {
    */
   select<F1 extends AM.AnyMessage>(
     address: AA.Address<F1>
-  ): T.Effect<unknown, NoSuchActorException | InvalidActorPath, AR.ActorRef<F1>> {
+  ): T.Effect<unknown, ActorSystemException, AR.ActorRef<F1>> {
     return pipe(
       this.lookup(address),
-      T.chain(O.fold(() => T.fail(new NoSuchActorException(address.path)), T.succeed))
+      T.chain(O.fold(() => T.fail(NoSuchActorException(address.path)), T.succeed))
     )
   }
 
   lookup<F1 extends AM.AnyMessage>(
     address: AA.Address<F1>
-  ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
+  ): T.Effect<unknown, ActorSystemException, O.Option<AR.ActorRef<F1>>> {
     return pipe(
       T.do,
       T.bind("solvedPath", (_) => resolvePath(address.path)),
@@ -263,7 +248,7 @@ export class ActorSystem {
             )
           )
         } else {
-          return T.die(new NoRemoteSupportException())
+          return T.die(NoRemoteSupportException())
         }
       })
     )
@@ -271,7 +256,7 @@ export class ActorSystem {
 
   unsafeLookup<F1 extends AM.AnyMessage>(
     address: string
-  ): T.Effect<unknown, InvalidActorPath, O.Option<AR.ActorRef<F1>>> {
+  ): T.Effect<unknown, ActorSystemException, O.Option<AR.ActorRef<F1>>> {
     return pipe(
       T.do,
       T.bind("solvedPath", (_) => resolvePath(address)),
@@ -302,15 +287,13 @@ export class ActorSystem {
             )
           )
         } else {
-          return T.die(new NoRemoteSupportException())
+          return T.die(NoRemoteSupportException())
         }
       })
     )
   }
 
-  runEnvelope(
-    envelope: EN.Envelope
-  ): T.Effect<unknown, InvalidActorPath | NoSuchActorException | Throwable, unknown> {
+  runEnvelope(envelope: EN.Envelope): T.Effect<unknown, unknown, unknown> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
     return pipe(
@@ -335,7 +318,7 @@ export class ActorSystem {
             T.chain((_) =>
               O.fold_(
                 _.actorRef,
-                () => T.fail(new NoSuchActorException(envelope.recipient)),
+                () => T.fail(NoSuchActorException(envelope.recipient)),
                 (actor: A.Actor<any>) => actor.runOp(envelope.command)
               )
             )
@@ -389,16 +372,19 @@ export class ActorSystem {
             })
           }
 
-          return T.die(new NoRemoteSupportException())
+          return T.die(NoRemoteSupportException())
         }
       })
     )
   }
 }
 
-function buildFinalName(parentActorName: string, actorName: string) {
+function buildFinalName(
+  parentActorName: string,
+  actorName: string
+): T.IO<ActorSystemException, string> {
   return actorName.length === 0
-    ? T.fail(new InvalidActorName(actorName))
+    ? T.fail(InvalidActorName(actorName))
     : T.succeed(parentActorName + "/" + actorName)
 }
 
@@ -420,12 +406,12 @@ const regexFullPath =
 
 export function resolvePath(
   path: string
-): T.Effect<unknown, InvalidActorPath, readonly [string, string, number, string]> {
+): T.Effect<unknown, ActorSystemException, readonly [string, string, number, string]> {
   const match = path.match(regexFullPath)
   if (match) {
     return T.succeed([match[1], match[2], parseInt(match[3], 10), "/" + match[4]])
   }
-  return T.fail(new InvalidActorPath(path))
+  return T.fail(InvalidActorPath(path))
 }
 
 export function make(

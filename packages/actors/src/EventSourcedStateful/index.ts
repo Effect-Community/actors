@@ -14,7 +14,7 @@ import type { IsEqualTo } from "@effect-ts/system/Utils"
 
 import * as A from "../Actor"
 import type * as AS from "../ActorSystem"
-import type { Throwable } from "../common"
+import type { ActorSystemException, Throwable } from "../common"
 import type { Journal, PersistenceId } from "../Journal"
 import { JournalFactory } from "../Journal"
 import type * as AM from "../Message"
@@ -56,7 +56,11 @@ export function eventSourcedStateful<S, F1 extends AM.AnyMessage, EV>(
       context: AS.Context<F1>
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
-    ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
+    ) => T.Effect<
+      R,
+      ActorSystemException | AM.ErrorOf<F1>,
+      EventSourcedResponse<S, F1, EV>
+    >,
     sourceEvent: (state: S) => (event: EV) => S
   ) =>
     new EventSourcedStateful<R, S, F1, EV>(
@@ -85,7 +89,11 @@ export class EventSourcedStateful<
       context: AS.Context<F1>
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
-    ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
+    ) => T.Effect<
+      R,
+      ActorSystemException | AM.ErrorOf<F1>,
+      EventSourcedResponse<S, F1, EV>
+    >,
     readonly sourceEvent: (state: S) => (event: EV) => S
   ) {
     super()
@@ -98,7 +106,7 @@ export class EventSourcedStateful<
   }
 
   makeActor(
-    supervisor: SUP.Supervisor<R>,
+    supervisor: SUP.Supervisor<R, ActorSystemException | AM.ErrorOf<F1>>,
     context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize

@@ -145,7 +145,7 @@ export function decodeCommand<F1 extends AnyMessage>(
   msg: unknown
 ) => T.Effect<
   unknown,
-  CommandParserException,
+  ActorSystemException,
   readonly [
     F1,
     (response: ResponseOf<F1>) => unknown,
@@ -178,6 +178,6 @@ export function decodeCommand<F1 extends AnyMessage>(
           )
         )
       ),
-      T.mapError((e) => new CommandParserException(e))
+      T.mapError((e) => CommandParserException(e))
     )
 }

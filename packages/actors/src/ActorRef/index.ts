@@ -97,7 +97,7 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
   /**
    * Stops actor and all its children
    */
-  readonly stop: T.IO<Throwable, CH.Chunk<void>>
+  readonly stop: T.IO<ActorSystemException, CH.Chunk<void>>
 
   /**
    * Contains the Schema for the commands and responses of the ActorRef
