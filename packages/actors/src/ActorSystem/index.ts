@@ -7,7 +7,6 @@ import * as REF from "@effect-ts/core/Effect/Ref"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as St from "@effect-ts/core/Structural"
-import type { HasClock } from "@effect-ts/system/Clock"
 import { pipe } from "@effect-ts/system/Function"
 
 import type * as A from "../Actor"
@@ -56,7 +55,7 @@ export class Context<FC extends AM.AnyMessage> {
     stateful: A.AbstractStateful<R, S, F1>,
     init: S
   ): T.Effect<
-    R & HasClock,
+    R & T.DefaultEnv,
     ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
     AR.ActorRef<F1>
   > {
@@ -114,7 +113,7 @@ export class ActorSystem {
     stateful: A.AbstractStateful<R, S, F1>,
     init: S
   ): T.Effect<
-    R & HasClock,
+    R & T.DefaultEnv,
     ActorAlreadyExistsException | InvalidActorName | ErrorMakingActorException,
     AR.ActorRef<F1>
   > {

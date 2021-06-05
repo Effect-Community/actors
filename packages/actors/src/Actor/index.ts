@@ -23,7 +23,7 @@ export class Actor<F1 extends AM.AnyMessage> {
   constructor(
     readonly messages: AM.MessageRegistry<F1>,
     readonly queue: Q.Queue<PendingMessage<F1>>,
-    readonly optOutActorSystem: () => T.Effect<unknown, Throwable, void>
+    readonly optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>
   ) {}
 
   runOp(command: EV.Command) {
@@ -74,9 +74,9 @@ export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   abstract makeActor(
     supervisor: SUP.Supervisor<R>,
     context: AS.Context<any>,
-    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
+    optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>,
     mailboxSize?: number
-  ): (initial: S) => T.Effect<R & HasClock, Throwable, Actor<F1>>
+  ): (initial: S) => T.Effect<R & T.DefaultEnv, Throwable, Actor<F1>>
 }
 
 export type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {

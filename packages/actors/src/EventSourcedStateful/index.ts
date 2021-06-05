@@ -8,7 +8,6 @@ import { pipe } from "@effect-ts/core/Function"
 import type { Has } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import type * as SCH from "@effect-ts/schema"
-import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 import type { IsEqualTo } from "@effect-ts/system/Utils"
 
@@ -56,7 +55,7 @@ export function eventSourcedStateful<S, F1 extends AM.AnyMessage, EV>(
       context: AS.Context<F1>
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
-    ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
+    ) => T.Effect<R & T.DefaultEnv, Throwable, EventSourcedResponse<S, F1, EV>>,
     sourceEvent: (state: S) => (event: EV) => S
   ) =>
     new EventSourcedStateful<R, S, F1, EV>(
@@ -85,7 +84,7 @@ export class EventSourcedStateful<
       context: AS.Context<F1>
     ) => (
       msg: EventSourcedEnvelope<S, F1, EV>
-    ) => T.Effect<R, Throwable, EventSourcedResponse<S, F1, EV>>,
+    ) => T.Effect<R & T.DefaultEnv, Throwable, EventSourcedResponse<S, F1, EV>>,
     readonly sourceEvent: (state: S) => (event: EV) => S
   ) {
     super()
@@ -100,16 +99,16 @@ export class EventSourcedStateful<
   makeActor(
     supervisor: SUP.Supervisor<R>,
     context: AS.Context<F1>,
-    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
+    optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
   ): (
     initial: S
-  ) => T.Effect<R & Has<JournalFactory> & HasClock, Throwable, A.Actor<F1>> {
+  ) => T.Effect<R & Has<JournalFactory> & T.DefaultEnv, Throwable, A.Actor<F1>> {
     const process = (
       msg: A.PendingMessage<F1>,
       state: REF.Ref<S>,
       journal: Journal<S, EV>
-    ): T.Effect<R & HasClock, Throwable, void> => {
+    ): T.Effect<R & T.DefaultEnv, Throwable, void> => {
       return pipe(
         T.do,
         T.bind("s", () => REF.get(state)),

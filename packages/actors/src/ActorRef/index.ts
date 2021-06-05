@@ -85,18 +85,18 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * @param fa message
    * @return lifted unit
    */
-  tell(msg: F1): T.IO<Throwable, void>
+  tell(msg: F1): T.Effect<T.DefaultEnv, Throwable, void>
 
   /**
    * Get referential absolute actor path
    * @return
    */
-  readonly path: T.UIO<string>
+  readonly path: T.Effect<T.DefaultEnv, never, string>
 
   /**
    * Stops actor and all its children
    */
-  readonly stop: T.IO<Throwable, Chunk.Chunk<void>>
+  readonly stop: T.Effect<T.DefaultEnv, Throwable, Chunk.Chunk<void>>
 }
 
 export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
@@ -126,8 +126,10 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     const address = this.address
     return T.gen(function* (_) {
       const [, host, port] = yield* _(resolvePath(address))
+
+      // TODO: PROPER CLIENT
       const response = yield* _(
-        T.promise(() =>
+        T.tryPromise(() =>
           fetch(`http://${host}:${port}/cmd`, {
             method: "POST",
             headers: {
@@ -148,6 +150,8 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
             })
           }).then((r) => r.json())
         )
+          ["|>"](T.timeout(15_000))
+          ["|>"](T.chain(T.getOrFail))
       )
 
       return envOp._tag === "Ask"
@@ -164,7 +168,7 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     })
   }
 
-  ask<A extends F1>(msg: A): T.IO<Throwable, AM.ResponseOf<A>>
+  ask<A extends F1>(msg: A): T.Effect<T.DefaultEnv, Throwable, AM.ResponseOf<A>>
   ask<A extends F1>(msg: A) {
     return this.runEnvelope({
       command: Envelope.ask(msg),
@@ -172,7 +176,7 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     })
   }
 
-  tell(msg: F1): T.IO<Throwable, void>
+  tell(msg: F1): T.Effect<T.DefaultEnv, Throwable, void>
   tell(msg: F1) {
     return this.runEnvelope({
       command: Envelope.tell(msg),
@@ -180,10 +184,11 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
     })
   }
 
-  readonly stop: T.IO<Throwable, Chunk.Chunk<void>> = this.runEnvelope({
-    command: Envelope.stop(),
-    recipient: this.address
-  })
+  readonly stop: T.Effect<T.DefaultEnv, Throwable, Chunk.Chunk<void>> =
+    this.runEnvelope({
+      command: Envelope.stop(),
+      recipient: this.address
+    })
 
   readonly path: T.UIO<string> = T.succeed(this.address)
 }

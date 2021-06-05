@@ -145,7 +145,7 @@ describe("Messaging", () => {
       yield* _(J.adjust(5_000))
 
       expect((yield* _(sub.ask(new GetMessages()))).messages).equals(
-        Chunk.many("it works", "tick", "tick", "tick", "tick", "tick", "tick")
+        Chunk.many("it works", "tick", "tick", "tick", "tick", "tick")
       )
     }))
 })

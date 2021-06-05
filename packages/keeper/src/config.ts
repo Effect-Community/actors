@@ -6,7 +6,7 @@ export const KeeperConfigSym = Symbol()
 export interface KeeperConfig {
   readonly [KeeperConfigSym]: typeof KeeperConfigSym
   readonly connectionString: string
-  readonly options?: Z.Option
+  readonly options?: Z.Option | undefined
 }
 
 export const KeeperConfig = tag<KeeperConfig>()

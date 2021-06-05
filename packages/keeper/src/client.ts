@@ -47,7 +47,18 @@ export const makeKeeperClient = M.gen(function* (_) {
           )
         }
       })
-    })["|>"](M.make((cli) => T.succeedWith(() => cli.close())))
+    })["|>"](
+      M.make((cli) =>
+        T.effectAsync<unknown, never, void>((cb) => {
+          cli.close()
+          cli.on("state", (s) => {
+            if (s.code === Z.State.DISCONNECTED.code) {
+              cb(T.unit)
+            }
+          })
+        })["|>"](T.timeout(10_000))
+      )
+    )
   )
 
   function create(
@@ -200,3 +211,5 @@ export const makeKeeperClient = M.gen(function* (_) {
 export interface KeeperClient extends _A<typeof makeKeeperClient> {}
 export const KeeperClient = tag<KeeperClient>()
 export const LiveKeeperClient = L.fromManaged(KeeperClient)(makeKeeperClient)
+
+export const { monitor } = T.deriveLifted(KeeperClient)([], ["monitor"], [])

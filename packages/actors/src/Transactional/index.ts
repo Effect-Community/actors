@@ -152,9 +152,9 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
   makeActor(
     supervisor: SUP.Supervisor<R>,
     context: AS.Context<F1>,
-    optOutActorSystem: () => T.Effect<unknown, Throwable, void>,
+    optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
-  ): (initial: S) => T.RIO<R & HasClock & Has<StateStorageAdapter>, Actor<F1>> {
+  ): (initial: S) => T.RIO<R & T.DefaultEnv & Has<StateStorageAdapter>, Actor<F1>> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
 
