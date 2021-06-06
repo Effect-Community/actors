@@ -361,17 +361,17 @@
   dependencies:
     chalk "^4.0.0"
 
-"@effect-ts/build-utils@^0.20.3":
-  version "0.20.3"
-  resolved "https://registry.yarnpkg.com/@effect-ts/build-utils/-/build-utils-0.20.3.tgz#27d1bf017b71894cb492909e7b690fe0c43ffba9"
-  integrity sha512-l94QkM3gnAQybGk3A5Jy3IoWCB2ufydkN4jJLbtaMfO1pOyWxAQe6U/j6duawAe3J3qBrurvvzFJBgNkubSW1g==
+"@effect-ts/build-utils@^0.20.4":
+  version "0.20.4"
+  resolved "https://registry.yarnpkg.com/@effect-ts/build-utils/-/build-utils-0.20.4.tgz#f6132418b0cbe2bf454231613658411f6da12425"
+  integrity sha512-8FgnusyPqF9idKMFfwSp7uCuWZEpR6SeXJZEvfOkTTKM1eawBiKm/cfb1X5MekQMXJU0ac0Ix9U7frv9Ip5IzA==
 
-"@effect-ts/core@^0.40.0", "@effect-ts/core@^0.40.3":
-  version "0.40.3"
-  resolved "https://registry.yarnpkg.com/@effect-ts/core/-/core-0.40.3.tgz#1fcf5df5f5e0f788576edf94c9954395ba06e8c9"
-  integrity sha512-GKYWEAo9CS6mfjtbx0f4krhogYS+Nz7FKBiH1zH5KLTep0zQPPpxrkoLbvDLuThI1H2xkXuaQzjqFyOjDQCopQ==
+"@effect-ts/core@^0.40.0", "@effect-ts/core@^0.40.4":
+  version "0.40.4"
+  resolved "https://registry.yarnpkg.com/@effect-ts/core/-/core-0.40.4.tgz#18012be0652fb4b0dedbfcf3e99c69c4b6b39dca"
+  integrity sha512-vcYMJp7fQ8OO/v7teXw4xJibRtTZydSV5c6fIFRE3af0HBJYdA7oTQ+SsPOjclddlLigjLRvaYWw/N8ZGEQ0fA==
   dependencies:
-    "@effect-ts/system" "^0.37.3"
+    "@effect-ts/system" "^0.37.4"
 
 "@effect-ts/express@^0.20.1":
   version "0.20.1"
@@ -395,10 +395,10 @@
   dependencies:
     "@effect-ts/core" "^0.40.0"
 
-"@effect-ts/system@^0.37.3":
-  version "0.37.3"
-  resolved "https://registry.yarnpkg.com/@effect-ts/system/-/system-0.37.3.tgz#3dc1b8570d949c7054f38da3b57c1910e0339565"
-  integrity sha512-ffa1JrPebSjEbosGReMXH+NrdLqcgSNwv5tcM/4SVqy+XZxCrE8mCEF9JrLE7+OZrARzgafzvKovap4SZpmClw==
+"@effect-ts/system@^0.37.4":
+  version "0.37.4"
+  resolved "https://registry.yarnpkg.com/@effect-ts/system/-/system-0.37.4.tgz#4951b1b709714565fb90b923e055b17d85aa0592"
+  integrity sha512-MvK2lT1WktiEWG2CgJNCAqni/9294sjdNvigWtAhzdGZaZ/L/o+Q7KjOajmIA/dSNMU4axNebHxIt5uS7zO6zw==
 
 "@effect-ts/tracing-plugin@^0.11.0":
   version "0.11.0"
@@ -8930,10 +8930,10 @@ trim-off-newlines@^1.0.0:
   resolved "https://registry.yarnpkg.com/trim-off-newlines/-/trim-off-newlines-1.0.1.tgz#9f9ba9d9efa8764c387698bcbfeb2c848f11adb3"
   integrity sha1-n5up2e+odkw4dpi8v+sshI8RrbM=
 
-ts-jest@^27.0.1:
-  version "27.0.2"
-  resolved "https://registry.yarnpkg.com/ts-jest/-/ts-jest-27.0.2.tgz#acc1525d5fd25c107c777c3b80a11365db579aa1"
-  integrity sha512-pozjHOOfm+sbv9kXCvTFVyDntWvuJztzkNFql/akD75hSMZ2jsbidVauOhBRImAopXohqcLtPK/NTTIS8Y49Ug==
+ts-jest@^27.0.3:
+  version "27.0.3"
+  resolved "https://registry.yarnpkg.com/ts-jest/-/ts-jest-27.0.3.tgz#808492f022296cde19390bb6ad627c8126bf93f8"
+  integrity sha512-U5rdMjnYam9Ucw+h0QvtNDbc5+88nxt7tbIvqaZUhFrfG4+SkWhMXjejCLVGcpILTPuV+H3W/GZDZrnZFpPeXw==
   dependencies:
     bs-logger "0.x"
     buffer-from "1.x"

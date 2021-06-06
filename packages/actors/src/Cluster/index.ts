@@ -1,6 +1,6 @@
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
-import * as HashSet from "@effect-ts/core/Collections/Immutable/HashSet"
+import * as SortedSet from "@effect-ts/core/Collections/Immutable/SortedSet"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -15,6 +15,8 @@ import { chainF } from "@effect-ts/core/Prelude"
 import type { _A } from "@effect-ts/core/Utils"
 import * as K from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
+import * as Guard from "@effect-ts/schema/Guard"
+import * as Th from "@effect-ts/schema/These"
 
 import { ActorProxy } from "../Actor"
 import { ActorRefRemote } from "../ActorRef"
@@ -58,9 +60,11 @@ export class Member extends S.Model<Member>()(
   })
 ) {}
 
+const OrdMember = Ord.contramap_(Ord.string, (m: Member) => m.id)
+
 export class Members extends S.Model<Members>()(
   S.props({
-    members: S.prop(S.chunk(Member))
+    members: S.prop(sortedSet(Member, OrdMember))
   })
 ) {}
 
@@ -82,6 +86,30 @@ export class Leave extends Message(
 ) {}
 
 export type Protocol = GetMembers | Join | Init | Leave
+
+export function sortedSet<X extends S.SchemaUPI>(
+  child: X,
+  ord: Ord.Ord<S.ParsedShapeOf<X>>
+) {
+  return S.chunk(child)[">>>"](
+    pipe(
+      S.identity(
+        (u): u is SortedSet.SortedSet<S.ParsedShapeOf<X>> =>
+          u instanceof SortedSet.SortedSet && SortedSet.every_(u, Guard.for(child))
+      ),
+      S.parser((u: Chunk.Chunk<S.ParsedShapeOf<X>>) =>
+        Th.succeed(
+          Chunk.reduce_(u, SortedSet.make<S.ParsedShapeOf<X>>(ord), SortedSet.add_)
+        )
+      ),
+      S.encoder(Chunk.from)
+    )
+  )
+}
+
+export function fromChunk(u: Chunk.Chunk<Member>): SortedSet.SortedSet<Member> {
+  return Chunk.reduce_(u, SortedSet.make(OrdMember), SortedSet.add_)
+}
 
 export const makeCluster = M.gen(function* (_) {
   const cli = yield* _(K.KeeperClient)
@@ -116,7 +144,11 @@ export const makeCluster = M.gen(function* (_) {
   const nodeId = `member_${nodePath.substr(prefix.length)}` as MemberId
 
   const membersRef = yield* _(
-    Ref.makeRef(new Members({ members: Chunk.single(new Member({ id: nodeId })) }))
+    Ref.makeRef(
+      new Members({
+        members: SortedSet.add_(SortedSet.make(OrdMember), new Member({ id: nodeId }))
+      })
+    )
   )
 
   const ops = yield* _(Q.makeUnbounded<Join | Leave>())
@@ -139,26 +171,21 @@ export const makeCluster = M.gen(function* (_) {
                     yield* _(cli.getChildren(membersDir)),
                     (s) => new Member({ id: s as MemberId })
                   )
-                  yield* _(Ref.update_(membersRef, (x) => x.copy({ members })))
+                  yield* _(
+                    Ref.update_(membersRef, (x) =>
+                      x.copy({ members: fromChunk(members) })
+                    )
+                  )
                   yield* _(pipe(T.succeed({}), T.to(p)))
                   break
                 }
                 case "Join": {
                   yield* _(
-                    Ref.update_(membersRef, (x) => {
-                      // TODO: change with a SortedSet + Schema once ready
-                      const updated = HashSet.beginMutation(HashSet.make<Member>())
-                      Chunk.forEach_(
-                        Chunk.append_(x.members, new Member({ id: m.id })),
-                        (m) => HashSet.add_(updated, m)
-                      )
-                      return x.copy({
-                        members: pipe(
-                          Chunk.from(updated),
-                          Chunk.sort(Ord.contramap_(Ord.string, (m) => m.id))
-                        )
+                    Ref.update_(membersRef, (x) =>
+                      x.copy({
+                        members: SortedSet.add_(x.members, new Member({ id: m.id }))
                       })
-                    })
+                    )
                   )
                   if (yield* _(Ref.get(isLeader))) {
                     yield* _(Q.offer_(ops, m))
@@ -182,7 +209,7 @@ export const makeCluster = M.gen(function* (_) {
                   yield* _(
                     Ref.update_(membersRef, (x) =>
                       x.copy({
-                        members: Chunk.filter_(x.members, (_) => _.id !== m.id)
+                        members: SortedSet.filter_(x.members, (_) => _.id !== m.id)
                       })
                     )
                   )
@@ -198,10 +225,7 @@ export const makeCluster = M.gen(function* (_) {
                       Ref.get(membersRef),
                       T.map((_) =>
                         _.copy({
-                          members: pipe(
-                            _.members,
-                            Chunk.sort(Ord.contramap_(Ord.string, (m) => m.id))
-                          )
+                          members: _.members
                         })
                       ),
                       T.to(p)
@@ -261,13 +285,13 @@ export const makeCluster = M.gen(function* (_) {
               const { members } = yield* _(Ref.get(membersRef))
               yield* _(
                 T.forEach_(
-                  Chunk.filter_(members, (m) => m.id !== j.id),
+                  SortedSet.filter_(members, (m) => m.id !== j.id),
                   (m) => ref.ask(new Join({ id: m.id }))
                 )
               )
               yield* _(
                 T.forEach_(
-                  Chunk.filter_(members, (m) => m.id !== j.id && m.id !== nodeId),
+                  SortedSet.filter_(members, (m) => m.id !== j.id && m.id !== nodeId),
                   (m) =>
                     T.gen(function* (_) {
                       const { host, port } = yield* _(memberHostPort(m.id))
@@ -281,7 +305,7 @@ export const makeCluster = M.gen(function* (_) {
               const { members } = yield* _(Ref.get(membersRef))
               yield* _(
                 T.forEach_(
-                  Chunk.filter_(members, (m) => m.id !== j.id && m.id !== nodeId),
+                  SortedSet.filter_(members, (m) => m.id !== j.id && m.id !== nodeId),
                   (m) =>
                     T.gen(function* (_) {
                       const { host, port } = yield* _(memberHostPort(m.id))
