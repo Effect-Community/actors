@@ -27,8 +27,8 @@ export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
 }
 
 export function runner<R, E, F1 extends AM.AnyMessage>(
-  passivateAfter: number,
-  factory: (id: string) => T.Effect<R, E, ActorRef<F1>>
+  factory: (id: string) => T.Effect<R, E, ActorRef<F1>>,
+  opts?: { passivateAfter?: number }
 ) {
   return M.gen(function* (_) {
     const runningMapRef = yield* _(
@@ -93,7 +93,7 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
         )
     }
 
-    function passivate(now: number, _: Chunk.Chunk<string>) {
+    function passivate(now: number, _: Chunk.Chunk<string>, passivateAfter: number) {
       return T.forEachUnitPar_(_, (path) =>
         pipe(
           T.gen(function* (_) {
@@ -158,25 +158,28 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
       )
     }
 
-    yield* _(
-      T.forkManaged(
-        T.repeat(Sh.windowed(passivateAfter))(
-          T.gen(function* (_) {
-            const now = yield* _(Clock.currentTime)
-            const stats = yield* _(REF.get(statsRef))
-            const toPassivate = Chunk.builder<string>()
+    if (opts?.passivateAfter != null) {
+      const passivateAfter = opts?.passivateAfter
+      yield* _(
+        T.forkManaged(
+          T.repeat(Sh.windowed(opts.passivateAfter))(
+            T.gen(function* (_) {
+              const now = yield* _(Clock.currentTime)
+              const stats = yield* _(REF.get(statsRef))
+              const toPassivate = Chunk.builder<string>()
 
-            for (const [k, v] of stats) {
-              if (v.inFlight === 0 && now - v.last >= passivateAfter) {
-                toPassivate.append(k)
+              for (const [k, v] of stats) {
+                if (v.inFlight === 0 && now - v.last >= passivateAfter) {
+                  toPassivate.append(k)
+                }
               }
-            }
 
-            yield* _(passivate(now, toPassivate.build()))
-          })
+              yield* _(passivate(now, toPassivate.build(), passivateAfter))
+            })
+          )
         )
       )
-    )
+    }
 
     return {
       runningMapRef,
@@ -247,9 +250,7 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
     M.useNow(
       M.gen(function* (_) {
         const factory = yield* _(
-          runner(opts?.passivateAfter ?? 1_000, (id) =>
-            context.make<R, S, F1>(id, SUP.none, stateful, initial)
-          )
+          runner((id) => context.make<R, S, F1>(id, SUP.none, stateful, initial), opts)
         )
         const name = yield* _(
           pipe(

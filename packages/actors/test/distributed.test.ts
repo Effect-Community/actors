@@ -74,7 +74,8 @@ const usersHandler = D.distributed(
       }
     })
   ),
-  ({ id }) => id
+  ({ id }) => id,
+  { passivateAfter: 1_000 }
 )
 
 export const makeUsersService = M.gen(function* (_) {
