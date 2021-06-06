@@ -115,9 +115,14 @@ export const LiveProcessService = L.fromManaged(ProcessService)(makeProcessServi
 pipe(
   T.gen(function* (_) {
     const { processA } = yield* _(ProcessService)
+    const { manager } = yield* _(Cluster.Cluster)
 
     while (1) {
       console.log("n:", yield* _(processA.ask(new Get())))
+      console.log(
+        "m:",
+        Array.from((yield* _(manager.ask(new Cluster.GetMembers()))).members)
+      )
       yield* _(T.sleep(2_000))
     }
   })["|>"](T.eventually),
