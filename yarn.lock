@@ -373,10 +373,10 @@
   dependencies:
     "@effect-ts/system" "^0.37.3"
 
-"@effect-ts/express@^0.20.0":
-  version "0.20.0"
-  resolved "https://registry.yarnpkg.com/@effect-ts/express/-/express-0.20.0.tgz#fa62ba776f0eb40fbaa6c64d3f67ca6721885461"
-  integrity sha512-rwaDw8LANP+I/0pN073DbcRW5d/tYEfVH9bNSr7ipI/30A/sZ14/gStHu0X0ryFNmsmq0/M706boVAgYE2svog==
+"@effect-ts/express@^0.20.1":
+  version "0.20.1"
+  resolved "https://registry.yarnpkg.com/@effect-ts/express/-/express-0.20.1.tgz#033e9f358b034e29f4acfdc1208afb5d4b3addf8"
+  integrity sha512-/3/CbSRzQ2LlZZTw8ncXOtVq77e4KImmvM2hth5Q8aNGSPB9oRlntEVhkA5mNHdpfaIoQxq/UaQJxJKz4pWlGA==
 
 "@effect-ts/jest@^0.28.4":
   version "0.28.4"

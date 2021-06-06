@@ -34,7 +34,7 @@
     "@babel/core": "^7.14.3",
     "@effect-ts/build-utils": "^0.20.3",
     "@effect-ts/core": "^0.40.3",
-    "@effect-ts/express": "^0.20.0",
+    "@effect-ts/express": "^0.20.1",
     "@effect-ts/jest": "^0.28.4",
     "@effect-ts/node": "^0.26.0",
     "@effect-ts/schema": "^0.8.1",
