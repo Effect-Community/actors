@@ -6,10 +6,10 @@ import * as M from "@effect-ts/core/Effect/Managed"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
-import { flow } from "@effect-ts/core/Function"
 import type { Has } from "@effect-ts/core/Has"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
+import { hash } from "@effect-ts/core/Structural"
 import * as PG from "@effect-ts/pg"
 import type * as SCH from "@effect-ts/schema"
 import * as S from "@effect-ts/schema"
@@ -43,12 +43,18 @@ export function transactional<S, F1 extends AM.AnyMessage>(
 export interface StateStorageAdapter {
   readonly transaction: <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A>
 
-  readonly get: (actorName: string) => T.Effect<unknown, never, O.Option<string>>
+  readonly get: (actorName: string) => T.Effect<unknown, never, O.Option<unknown>>
 
-  readonly set: (actorName: string, value: string) => T.Effect<unknown, never, void>
+  readonly set: (actorName: string, value: unknown) => T.Effect<unknown, never, void>
 }
 
 export const StateStorageAdapter = tag<StateStorageAdapter>()
+
+export interface ShardConfig {
+  shards: number
+}
+
+export const ShardConfig = tag<ShardConfig>()
 
 export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
   M.gen(function* (_) {
@@ -58,29 +64,55 @@ export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
       cli.query(`
       CREATE TABLE IF NOT EXISTS "state_journal" (
         actor_name  text PRIMARY KEY,
-        state       text
+        shard       integer,
+        state       jsonb
       );`)
     )
 
     const transaction: <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A> =
       cli.transaction
 
-    const get: (actorName: string) => T.Effect<unknown, never, O.Option<string>> = (
-      id
-    ) =>
+    const get: (
+      actorName: string
+    ) => T.Effect<unknown, never, O.Option<{ shard: number }>> = (id) =>
       pipe(
         cli.query(`SELECT * FROM "state_journal" WHERE "actor_name" = '${id}'`),
-        T.map((res) => O.fromNullable(res.rows?.[0]?.["state"]))
+        T.map((res) =>
+          pipe(
+            O.fromNullable(res.rows?.[0]),
+            O.map((row) => ({
+              actor_name: row.actor_name,
+              shard: row.shard,
+              state: row["state"]
+            }))
+          )
+        )
       )
 
-    const set: (actorName: string, value: string) => T.Effect<unknown, never, void> = (
+    const mod = (m: number) => (x: number) => x < 0 ? (x % m) + m : x % m
+
+    const set: (actorName: string, value: unknown) => T.Effect<unknown, never, void> = (
       id,
       value
     ) =>
       pipe(
-        cli.query(
-          `INSERT INTO "state_journal" ("actor_name", "state") VALUES('${id}', $1::text) ON CONFLICT ("actor_name") DO UPDATE SET "state" = $1::text`,
-          [value]
+        T.accessM((r: unknown) =>
+          cli.query(
+            `INSERT INTO "state_journal" ("actor_name", "shard", "state") VALUES('${id}', $2::integer, $1::jsonb) ON CONFLICT ("actor_name") DO UPDATE SET "state" = $1::jsonb`,
+            [
+              JSON.stringify(value),
+              pipe(
+                hash(id),
+                mod(
+                  pipe(
+                    ShardConfig.readOption(r),
+                    O.map((_) => _.shards),
+                    O.getOrElse(() => 16)
+                  )
+                )
+              )
+            ]
+          )
         ),
         T.asUnit
       )
@@ -98,14 +130,14 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
   S,
   F1
 > {
-  readonly decodeState = (s: string, system: AS.ActorSystem) =>
-    S.condemnDie((u) => withSystem(system)(() => Parser.for(this.stateSchema)(u)))(
-      JSON.parse(s)["state"]
-    )
+  private readonly dbStateSchema = S.props({
+    current: S.prop(this.stateSchema)
+  })
 
-  readonly encodeState = flow(Encoder.for(this.stateSchema), (s) =>
-    JSON.stringify({ state: s })
-  )
+  readonly decodeState = (s: unknown, system: AS.ActorSystem) =>
+    S.condemnDie((u) => withSystem(system)(() => Parser.for(this.dbStateSchema)(u)))(s)
+
+  readonly encodeState = Encoder.for(this.dbStateSchema)
 
   readonly getState = (initial: S, system: AS.ActorSystem, actorName: string) => {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -117,7 +149,7 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
       const state = yield* _(get(actorName))
 
       if (O.isSome(state)) {
-        return yield* _(self.decodeState(state.value, system))
+        return (yield* _(self.decodeState(state.value, system))).current
       }
       return initial
     })
@@ -130,7 +162,7 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
     return T.gen(function* (_) {
       const { set } = yield* _(StateStorageAdapter)
 
-      yield* _(set(actorName, self.encodeState(current)))
+      yield* _(set(actorName, self.encodeState({ current })))
     })
   }
 

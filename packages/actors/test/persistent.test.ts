@@ -81,7 +81,8 @@ describe("Persistent", () => {
       expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
         {
           actor_name: "EffectTsActorsDemo(/process-a/leader)",
-          state: '{"state":1}'
+          shard: 3,
+          state: { current: 1 }
         }
       ])
     }))
