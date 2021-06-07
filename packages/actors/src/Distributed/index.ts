@@ -16,6 +16,7 @@ import * as A from "../Actor"
 import type { ActorRef } from "../ActorRef"
 import * as AS from "../ActorSystem"
 import { Cluster } from "../Cluster"
+import type { Throwable } from "../common"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
 
@@ -260,6 +261,18 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
         )
         const cluster = yield* _(Cluster)
         const cli = yield* _(KeeperClient)
+        const leadersRef = yield* _(
+          REF.makeRef(
+            HashMap.make<
+              string,
+              (
+                f: (
+                  ask: ActorRef<F1>["ask"]
+                ) => T.Effect<R & T.DefaultEnv, Throwable, void>
+              ) => T.Effect<R & T.DefaultEnv, Throwable, void>
+            >()
+          )
+        )
 
         while (1) {
           const all = yield* _(Q.takeBetween_(queue, 1, 100))
@@ -278,49 +291,101 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
             M.forEachUnitPar_(Object.keys(slots), (id) =>
               M.forEachUnit_(slots[id], ([a, p]) => {
                 return M.gen(function* (_) {
+                  const leaders = yield* _(REF.get(leadersRef))
                   const election = `distributed-${name}-${id}`
+                  const cached = HashMap.get_(leaders, election)
 
-                  yield* _(cluster.init(election))
-
-                  const leader = yield* _(cluster.leaderId(election))
-
-                  // there is a leader
-                  if (O.isSome(leader)) {
-                    if (leader.value === cluster.nodeId) {
-                      // we are the leader
-                      yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
-                    } else {
-                      // we are not the leader, use cluster
-                      const { host, port } = yield* _(
-                        cluster.memberHostPort(leader.value)
-                      )
-                      const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
-                      const act = yield* _(context.select(recipient))
-                      yield* _(act.ask(a)["|>"](T.to(p)))
-                    }
+                  if (O.isSome(cached)) {
+                    yield* _(cached.value((ask) => ask(a)["|>"](T.to(p))))
                   } else {
-                    // there is no leader, attempt to self elect
-                    const selfNode = yield* _(cluster.join(election))
+                    yield* _(cluster.init(election))
 
                     const leader = yield* _(cluster.leaderId(election))
 
-                    // this should never be the case
-                    if (O.isNone(leader)) {
-                      yield* _(T.die("cannot elect a leader"))
-                    } else {
-                      // we got the leadership
+                    // there is a leader
+                    if (O.isSome(leader)) {
                       if (leader.value === cluster.nodeId) {
+                        // we are the leader
+                        yield* _(
+                          REF.update_(
+                            leadersRef,
+                            HashMap.set(election, (f) =>
+                              factory.use(id)((ask) => f((a) => ask(a)))
+                            )
+                          )
+                        )
                         yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
                       } else {
-                        // someone else got the leadership first
-                        yield* _(cli.remove(selfNode))
-
+                        // we are not the leader, use cluster
                         const { host, port } = yield* _(
                           cluster.memberHostPort(leader.value)
                         )
                         const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
                         const act = yield* _(context.select(recipient))
+                        yield* _(
+                          REF.update_(
+                            leadersRef,
+                            HashMap.set(election, (f) => f((a) => act.ask(a)))
+                          )
+                        )
+                        yield* _(
+                          pipe(
+                            cluster.watchLeader(election),
+                            T.chain(() =>
+                              REF.update_(leadersRef, HashMap.remove(election))
+                            ),
+                            T.fork
+                          )
+                        )
                         yield* _(act.ask(a)["|>"](T.to(p)))
+                      }
+                    } else {
+                      // there is no leader, attempt to self elect
+                      const selfNode = yield* _(cluster.join(election))
+
+                      const leader = yield* _(cluster.leaderId(election))
+
+                      // this should never be the case
+                      if (O.isNone(leader)) {
+                        yield* _(T.die("cannot elect a leader"))
+                      } else {
+                        // we got the leadership
+                        if (leader.value === cluster.nodeId) {
+                          yield* _(
+                            REF.update_(
+                              leadersRef,
+                              HashMap.set(election, (f) =>
+                                factory.use(id)((ask) => f((a) => ask(a)))
+                              )
+                            )
+                          )
+                          yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
+                        } else {
+                          // someone else got the leadership first
+                          yield* _(cli.remove(selfNode))
+
+                          const { host, port } = yield* _(
+                            cluster.memberHostPort(leader.value)
+                          )
+                          const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
+                          const act = yield* _(context.select(recipient))
+                          yield* _(
+                            REF.update_(
+                              leadersRef,
+                              HashMap.set(election, (f) => f((a) => act.ask(a)))
+                            )
+                          )
+                          yield* _(
+                            pipe(
+                              cluster.watchLeader(election),
+                              T.chain(() =>
+                                REF.update_(leadersRef, HashMap.remove(election))
+                              ),
+                              T.fork
+                            )
+                          )
+                          yield* _(act.ask(a)["|>"](T.to(p)))
+                        }
                       }
                     }
                   }
