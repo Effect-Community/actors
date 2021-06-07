@@ -34,7 +34,7 @@ class User extends S.Model<User>()(
 ) {}
 
 class UserNotFound extends S.Model<UserNotFound>()(
-  S.props({ _tag: S.prop(S.literal("UserNotFound")) })
+  S.props({ _tag: S.prop(S.literal("UserNotFound")), id: S.prop(S.string) })
 ) {}
 
 class Get extends AM.Message(
@@ -65,7 +65,10 @@ const usersHandler = D.distributed(
       Get: (_) => {
         return _.return(
           state,
-          matchTag_(state, { Initial: () => new UserNotFound({}), User: (_) => _ })
+          matchTag_(state, {
+            Initial: () => new UserNotFound({ id: _.payload.id }),
+            User: (_) => _
+          })
         )
       },
       Create: (_) => {
@@ -81,7 +84,9 @@ const usersHandler = D.distributed(
 export const makeUsersService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)
 
-  const users = yield* _(system.make("users", SUP.none, usersHandler, new Initial({})))
+  const users = yield* _(
+    system.make("users", SUP.none, usersHandler, () => new Initial({}))
+  )
 
   return {
     users
@@ -98,7 +103,9 @@ describe("Distributed", () => {
   it("distributed", () =>
     T.gen(function* (_) {
       const { users } = yield* _(UsersService)
-      expect(yield* _(users.ask(new Get({ id: "mike" })))).equals(new UserNotFound({}))
+      expect(yield* _(users.ask(new Get({ id: "mike" })))).equals(
+        new UserNotFound({ id: "mike" })
+      )
       expect(yield* _(users.ask(new Create({ id: "mike" })))).equals(
         new User({ id: "mike" })
       )
@@ -106,7 +113,7 @@ describe("Distributed", () => {
         new User({ id: "mike" })
       )
       expect(yield* _(users.ask(new Get({ id: "mike-2" })))).equals(
-        new UserNotFound({})
+        new UserNotFound({ id: "mike-2" })
       )
       expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
         {

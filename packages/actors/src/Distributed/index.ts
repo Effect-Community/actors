@@ -247,11 +247,14 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
     passivateAfter?: number
   }
 ) =>
-  new A.ActorProxy(stateful.messages, (queue, context, initial: S) =>
+  new A.ActorProxy(stateful.messages, (queue, context, initial: (id: string) => S) =>
     M.useNow(
       M.gen(function* (_) {
         const factory = yield* _(
-          runner((id) => context.make<R, S, F1>(id, SUP.none, stateful, initial), opts)
+          runner(
+            (id) => context.make<R, S, F1>(id, SUP.none, stateful, initial(id)),
+            opts
+          )
         )
         const name = yield* _(
           pipe(
