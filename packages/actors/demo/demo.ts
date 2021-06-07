@@ -79,7 +79,9 @@ const usersHandler = D.distributed(
 export const makeUsersService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)
 
-  const users = yield* _(system.make("users", SUP.none, usersHandler, new Initial({})))
+  const users = yield* _(
+    system.make("users", SUP.none, usersHandler, () => new Initial({}))
+  )
 
   return {
     users
