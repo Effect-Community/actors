@@ -216,45 +216,43 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
           AS.resolvePath(context.address)["|>"](T.orDie),
           T.map(([sysName, __, ___, actorName]) => `${sysName}(${actorName})`),
           T.chain((actorName) =>
-            T.chain_(calcShard(actorName), (shard) =>
-              prov.transaction(actorName)(
-                pipe(
-                  T.do,
-                  T.bind("s", () =>
-                    self.getState(initial, context.actorSystem, actorName)
-                  ),
-                  T.let("fa", () => msg[0]),
-                  T.let("promise", () => msg[1]),
-                  T.let("receiver", (_) =>
-                    this.receive(
-                      _.s,
-                      context
-                    )({
-                      _tag: _.fa._tag,
-                      payload: _.fa,
-                      return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
-                    } as any)
-                  ),
-                  T.let(
-                    "completer",
-                    (_) =>
-                      ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
-                        pipe(
-                          self.setState(s, actorName),
-                          T.zipRight(P.succeed_(_.promise, a)),
-                          T.as(T.unit)
-                        )
-                  ),
-                  T.chain((_) =>
-                    T.foldM_(
-                      _.receiver,
-                      (e) =>
-                        pipe(
-                          supervisor.supervise(_.receiver, e),
-                          T.foldM((__) => P.fail_(_.promise, e), _.completer)
-                        ),
-                      _.completer
-                    )
+            prov.transaction(actorName)(
+              pipe(
+                T.do,
+                T.bind("s", () =>
+                  self.getState(initial, context.actorSystem, actorName)
+                ),
+                T.let("fa", () => msg[0]),
+                T.let("promise", () => msg[1]),
+                T.let("receiver", (_) =>
+                  this.receive(
+                    _.s,
+                    context
+                  )({
+                    _tag: _.fa._tag,
+                    payload: _.fa,
+                    return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
+                  } as any)
+                ),
+                T.let(
+                  "completer",
+                  (_) =>
+                    ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
+                      pipe(
+                        self.setState(s, actorName),
+                        T.zipRight(P.succeed_(_.promise, a)),
+                        T.as(T.unit)
+                      )
+                ),
+                T.chain((_) =>
+                  T.foldM_(
+                    _.receiver,
+                    (e) =>
+                      pipe(
+                        supervisor.supervise(_.receiver, e),
+                        T.foldM((__) => P.fail_(_.promise, e), _.completer)
+                      ),
+                    _.completer
                   )
                 )
               )
