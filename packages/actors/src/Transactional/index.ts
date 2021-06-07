@@ -41,13 +41,11 @@ export function transactional<S, F1 extends AM.AnyMessage>(
 
 export interface StateStorageAdapter {
   readonly transaction: (
-    persistenceId: string,
-    shard: number
+    persistenceId: string
   ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A>
 
   readonly get: (
-    persistenceId: string,
-    shard: number
+    persistenceId: string
   ) => T.Effect<
     unknown,
     never,
@@ -56,7 +54,6 @@ export interface StateStorageAdapter {
 
   readonly set: (
     persistenceId: string,
-    shard: number,
     value: unknown
   ) => T.Effect<unknown, never, void>
 }
@@ -83,22 +80,20 @@ export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
     )
 
     const transaction: (
-      persistenceId: string,
-      shard: number
+      persistenceId: string
     ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A> = () =>
       cli.transaction
 
     const get: (
-      persistenceId: string,
-      shard: number
+      persistenceId: string
     ) => T.Effect<
       unknown,
       never,
       O.Option<{ persistenceId: string; shard: number; state: unknown }>
-    > = (persistenceId, shard) =>
+    > = (persistenceId) =>
       pipe(
         cli.query(
-          `SELECT * FROM "state_journal" WHERE "persistence_id" = '${persistenceId}' AND "shard" = '${shard}'`
+          `SELECT * FROM "state_journal" WHERE "persistence_id" = '${persistenceId}'`
         ),
         T.map((res) =>
           pipe(
@@ -114,13 +109,15 @@ export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
 
     const set: (
       persistenceId: string,
-      shard: number,
       value: unknown
-    ) => T.Effect<unknown, never, void> = (id, shard, value) =>
+    ) => T.Effect<unknown, never, void> = (persistenceId, value) =>
       pipe(
-        cli.query(
-          `INSERT INTO "state_journal" ("persistence_id", "shard", "state") VALUES('${id}', $2::integer, $1::jsonb) ON CONFLICT ("persistence_id") DO UPDATE SET "state" = $1::jsonb`,
-          [JSON.stringify(value), shard]
+        calcShard(persistenceId),
+        T.chain((shard) =>
+          cli.query(
+            `INSERT INTO "state_journal" ("persistence_id", "shard", "state") VALUES('${persistenceId}', $2::integer, $1::jsonb) ON CONFLICT ("persistence_id") DO UPDATE SET "state" = $1::jsonb`,
+            [JSON.stringify(value), shard]
+          )
         ),
         T.asUnit
       )
@@ -133,6 +130,18 @@ export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
   })
 )
 
+const mod = (m: number) => (x: number) => x < 0 ? (x % m) + m : x % m
+
+const calcShard = (id: string) =>
+  T.access((r: unknown) => {
+    const maybe = ShardConfig.readOption(r)
+    if (O.isSome(maybe)) {
+      return mod(maybe.value.shards)(hash(id))
+    } else {
+      return mod(16)(hash(id))
+    }
+  })
+
 export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
   R & Has<StateStorageAdapter>,
   S,
@@ -141,8 +150,6 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
   private readonly dbStateSchema = S.props({
     current: S.prop(this.stateSchema)
   })
-
-  private readonly mod = (m: number) => (x: number) => x < 0 ? (x % m) + m : x % m
 
   readonly decodeState = (s: unknown, system: AS.ActorSystem) =>
     S.condemnDie((u) => withSystem(system)(() => Parser.for(this.dbStateSchema)(u)))(s)
@@ -156,7 +163,7 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
     return T.gen(function* (_) {
       const { get } = yield* _(StateStorageAdapter)
 
-      const state = yield* _(get(actorName, self.mod(16)(hash(actorName))))
+      const state = yield* _(get(actorName))
 
       if (O.isSome(state)) {
         return (yield* _(self.decodeState(state.value.state, system))).current
@@ -172,9 +179,7 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
     return T.gen(function* (_) {
       const { set } = yield* _(StateStorageAdapter)
 
-      yield* _(
-        set(actorName, self.mod(16)(hash(actorName)), self.encodeState({ current }))
-      )
+      yield* _(set(actorName, self.encodeState({ current })))
     })
   }
 
@@ -211,46 +216,45 @@ export class Transactional<R, S, F1 extends AM.AnyMessage> extends AbstractState
           AS.resolvePath(context.address)["|>"](T.orDie),
           T.map(([sysName, __, ___, actorName]) => `${sysName}(${actorName})`),
           T.chain((actorName) =>
-            prov.transaction(
-              actorName,
-              self.mod(16)(hash(actorName))
-            )(
-              pipe(
-                T.do,
-                T.bind("s", () =>
-                  self.getState(initial, context.actorSystem, actorName)
-                ),
-                T.let("fa", () => msg[0]),
-                T.let("promise", () => msg[1]),
-                T.let("receiver", (_) =>
-                  this.receive(
-                    _.s,
-                    context
-                  )({
-                    _tag: _.fa._tag,
-                    payload: _.fa,
-                    return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
-                  } as any)
-                ),
-                T.let(
-                  "completer",
-                  (_) =>
-                    ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
-                      pipe(
-                        self.setState(s, actorName),
-                        T.zipRight(P.succeed_(_.promise, a)),
-                        T.as(T.unit)
-                      )
-                ),
-                T.chain((_) =>
-                  T.foldM_(
-                    _.receiver,
-                    (e) =>
-                      pipe(
-                        supervisor.supervise(_.receiver, e),
-                        T.foldM((__) => P.fail_(_.promise, e), _.completer)
-                      ),
-                    _.completer
+            T.chain_(calcShard(actorName), (shard) =>
+              prov.transaction(actorName)(
+                pipe(
+                  T.do,
+                  T.bind("s", () =>
+                    self.getState(initial, context.actorSystem, actorName)
+                  ),
+                  T.let("fa", () => msg[0]),
+                  T.let("promise", () => msg[1]),
+                  T.let("receiver", (_) =>
+                    this.receive(
+                      _.s,
+                      context
+                    )({
+                      _tag: _.fa._tag,
+                      payload: _.fa,
+                      return: (s: S, r: AM.ResponseOf<F1>) => T.succeed(tuple(s, r))
+                    } as any)
+                  ),
+                  T.let(
+                    "completer",
+                    (_) =>
+                      ([s, a]: readonly [S, AM.ResponseOf<F1>]) =>
+                        pipe(
+                          self.setState(s, actorName),
+                          T.zipRight(P.succeed_(_.promise, a)),
+                          T.as(T.unit)
+                        )
+                  ),
+                  T.chain((_) =>
+                    T.foldM_(
+                      _.receiver,
+                      (e) =>
+                        pipe(
+                          supervisor.supervise(_.receiver, e),
+                          T.foldM((__) => P.fail_(_.promise, e), _.completer)
+                        ),
+                      _.completer
+                    )
                   )
                 )
               )
