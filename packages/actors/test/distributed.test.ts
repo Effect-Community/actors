@@ -110,12 +110,12 @@ describe("Distributed", () => {
       )
       expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
         {
-          actor_name: "EffectTsActorsDemo(/users/mike)",
+          persistence_id: "EffectTsActorsDemo(/users/mike)",
           state: { current: { _tag: "User", id: "mike" } },
           shard: 7
         },
         {
-          actor_name: "EffectTsActorsDemo(/users/mike-2)",
+          persistence_id: "EffectTsActorsDemo(/users/mike-2)",
           state: { current: { _tag: "Initial" } },
           shard: 8
         }
