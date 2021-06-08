@@ -255,6 +255,10 @@ export function runner<R, E, R2, E2, F1 extends AM.AnyMessage>(
   })
 }
 
+function electionFromNameAndId(name: string, id: string) {
+  return `distributed-${name}-${id}`
+}
+
 export const distributed = <R, S, F1 extends AM.AnyMessage>(
   stateful: A.AbstractStateful<R, S, F1>,
   messageToId: (_: F1) => string,
@@ -308,13 +312,14 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                     )
                   )
                 )
+                const election = electionFromNameAndId(name, id)
                 const leaderMap = yield* _(REF.get(leadersNodeRef))
-                const leaderPath = HashMap.get_(leaderMap, id)
+                const leaderPath = HashMap.get_(leaderMap, election)
                 if (O.isSome(leaderPath)) {
                   yield* _(cluster.leave(leaderPath.value))
                 }
-                yield* _(REF.update_(leadersRef, HashMap.remove(id)))
-                yield* _(REF.update_(leadersNodeRef, HashMap.remove(id)))
+                yield* _(REF.update_(leadersRef, HashMap.remove(election)))
+                yield* _(REF.update_(leadersNodeRef, HashMap.remove(election)))
                 yield* _(REF.update_(ref, HashMap.remove(id)))
                 yield* _(STM.commit(TRef.set_(gate, true)))
               }),
@@ -350,7 +355,7 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
               M.forEachUnit_(slots[id], ([a, p]) => {
                 return M.gen(function* (_) {
                   const leaders = yield* _(REF.get(leadersRef))
-                  const election = `distributed-${name}-${id}`
+                  const election = electionFromNameAndId(name, id)
                   const cached = HashMap.get_(leaders, election)
 
                   if (O.isSome(cached)) {
