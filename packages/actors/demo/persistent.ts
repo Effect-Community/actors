@@ -4,13 +4,13 @@ import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
 import { pipe } from "@effect-ts/core/Function"
 import { tag } from "@effect-ts/core/Has"
+import * as O from "@effect-ts/core/Option"
 import type { _A } from "@effect-ts/core/Utils"
 import * as Z from "@effect-ts/keeper"
 import { KeeperConfig, monitor } from "@effect-ts/keeper"
 import * as R from "@effect-ts/node/Runtime"
 import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
-import { matchTag } from "@effect-ts/system/Utils"
 
 import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
@@ -71,13 +71,23 @@ type Message = AM.TypeOf<typeof Message>
 
 const statefulHandler = transactional(
   Message,
-  S.number
-)((state) =>
-  matchTag({
-    Increase: (_) => _.return(state + 1),
-    Get: (_) => _.return(state, state)
-  })
-)
+  S.number,
+  O.none
+)(({ state }) => (msg) => {
+  switch (msg._tag) {
+    case "Get": {
+      return msg.handle(state.get)
+    }
+    case "Increase": {
+      return msg.handle(
+        pipe(
+          state.get,
+          T.chain((n) => state.set(n + 1))
+        )
+      )
+    }
+  }
+})
 
 export const makeProcessService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)
