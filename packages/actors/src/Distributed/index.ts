@@ -27,8 +27,20 @@ export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
   runningMapRef: REF.Ref<HashMap.HashMap<string, ActorRef<F1>>>
 }
 
-export function runner<R, E, F1 extends AM.AnyMessage>(
+export function runner<R, E, R2, E2, F1 extends AM.AnyMessage>(
   factory: (id: string) => T.Effect<R, E, ActorRef<F1>>,
+  postPassivation: (
+    id: string,
+    ref: REF.Ref<
+      HashMap.HashMap<
+        string,
+        TRef.TRef<{
+          listeners: number
+          closing: boolean
+        }>
+      >
+    >
+  ) => T.Effect<R2, E2, void>,
   opts?: { passivateAfter?: number }
 ) {
   return M.gen(function* (_) {
@@ -148,11 +160,14 @@ export function runner<R, E, F1 extends AM.AnyMessage>(
                 }
               }),
             (g) =>
-              STM.commit(
-                TRef.update_(g, (_) => ({
-                  closing: false,
-                  listeners: _.listeners
-                }))
+              pipe(
+                STM.commit(
+                  TRef.update_(g, (_) => ({
+                    closing: false,
+                    listeners: _.listeners
+                  }))
+                ),
+                T.zipRight(postPassivation(path, gatesRef))
               )
           )
         )
@@ -250,20 +265,16 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
   new A.ActorProxy(stateful.messages, (queue, context, initial: (id: string) => S) =>
     M.useNow(
       M.gen(function* (_) {
-        const factory = yield* _(
-          runner(
-            (id) => context.make<R, S, F1>(id, SUP.none, stateful, initial(id)),
-            opts
-          )
-        )
+        const cluster = yield* _(Cluster)
+        const cli = yield* _(KeeperClient)
+
         const name = yield* _(
           pipe(
             AS.resolvePath(context.address)["|>"](T.orDie),
             T.map(([_, __, ___, actorName]) => actorName.substr(1))
           )
         )
-        const cluster = yield* _(Cluster)
-        const cli = yield* _(KeeperClient)
+
         const leadersRef = yield* _(
           REF.makeRef(
             HashMap.make<
@@ -277,8 +288,52 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
           )
         )
 
+        const leadersNodeRef = yield* _(
+          REF.makeRef<HashMap.HashMap<string, string>>(HashMap.make())
+        )
+
+        const gate = yield* _(TRef.makeCommit(true))
+
+        const factory = yield* _(
+          runner(
+            (id) => context.make<R, S, F1>(id, SUP.none, stateful, initial(id)),
+            (id, ref) =>
+              T.gen(function* (_) {
+                yield* _(
+                  STM.commit(
+                    pipe(
+                      TRef.get(gate),
+                      STM.chain(STM.check),
+                      STM.chain(() => TRef.set_(gate, false))
+                    )
+                  )
+                )
+                const leaderMap = yield* _(REF.get(leadersNodeRef))
+                const leaderPath = HashMap.get_(leaderMap, id)
+                if (O.isSome(leaderPath)) {
+                  yield* _(cluster.leave(leaderPath.value))
+                }
+                yield* _(REF.update_(leadersRef, HashMap.remove(id)))
+                yield* _(REF.update_(leadersNodeRef, HashMap.remove(id)))
+                yield* _(REF.update_(ref, HashMap.remove(id)))
+                yield* _(STM.commit(TRef.set_(gate, true)))
+              }),
+            opts
+          )
+        )
+
         while (1) {
           const all = yield* _(Q.takeBetween_(queue, 1, 100))
+
+          yield* _(
+            STM.commit(
+              pipe(
+                TRef.get(gate),
+                STM.chain(STM.check),
+                STM.chain(() => TRef.set_(gate, false))
+              )
+            )
+          )
 
           const slots: Record<string, Chunk.Chunk<A.PendingMessage<F1>>> = {}
 
@@ -362,6 +417,9 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                               )
                             )
                           )
+                          yield* _(
+                            REF.update_(leadersNodeRef, HashMap.set(election, selfNode))
+                          )
                           yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
                         } else {
                           // someone else got the leadership first
@@ -396,6 +454,8 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
               })
             )
           )
+
+          yield* _(STM.commit(TRef.set_(gate, true)))
         }
 
         return yield* _(T.never)

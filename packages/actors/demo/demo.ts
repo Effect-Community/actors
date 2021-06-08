@@ -27,10 +27,12 @@ const AppLayer = LiveActorSystem("EffectTsActorsDemo")
   ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
   ["<+<"](LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPG)))
 
+@S.stable
 class User extends S.Model<User>()(
   S.props({ _tag: S.prop(S.literal("User")), id: S.prop(S.string) })
 ) {}
 
+@S.stable
 class UserNotFound extends S.Model<UserNotFound>()(
   S.props({ _tag: S.prop(S.literal("UserNotFound")) })
 ) {}
