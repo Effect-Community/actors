@@ -101,7 +101,8 @@ export const makeUsersService = M.gen(function* (_) {
       "users",
       SUP.none,
       D.distributed(userHandler, ({ id }) => id, {
-        passivateAfter: 1_000
+        passivateAfter: 1_000,
+        shards: 3
       }),
       () => new Initial({})
     )

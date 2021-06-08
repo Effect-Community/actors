@@ -19,6 +19,7 @@ import { Cluster } from "../Cluster"
 import type { Throwable } from "../common"
 import type * as AM from "../Message"
 import * as SUP from "../Supervisor"
+import { ShardConfig } from "../Transactional"
 
 export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
   name: N
@@ -264,156 +265,113 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
   messageToId: (_: F1) => string,
   opts?: {
     passivateAfter?: number
+    shards?: number
   }
 ) =>
   new A.ActorProxy(stateful.messages, (queue, context, initial: (id: string) => S) =>
-    M.useNow(
-      M.gen(function* (_) {
-        const cluster = yield* _(Cluster)
-        const cli = yield* _(KeeperClient)
+    T.provide(opts?.shards ? ShardConfig.of({ shards: opts.shards }) : {})(
+      M.useNow(
+        M.gen(function* (_) {
+          const cluster = yield* _(Cluster)
+          const cli = yield* _(KeeperClient)
 
-        const name = yield* _(
-          pipe(
-            AS.resolvePath(context.address)["|>"](T.orDie),
-            T.map(([_, __, ___, actorName]) => actorName.substr(1))
-          )
-        )
-
-        const leadersRef = yield* _(
-          REF.makeRef(
-            HashMap.make<
-              string,
-              (
-                f: (
-                  ask: ActorRef<F1>["ask"]
-                ) => T.Effect<R & T.DefaultEnv, Throwable, void>
-              ) => T.Effect<R & T.DefaultEnv, Throwable, void>
-            >()
-          )
-        )
-
-        const leadersNodeRef = yield* _(
-          REF.makeRef<HashMap.HashMap<string, string>>(HashMap.make())
-        )
-
-        const gate = yield* _(TRef.makeCommit(true))
-
-        const factory = yield* _(
-          runner(
-            (id) => context.make<R, S, F1>(id, SUP.none, stateful, initial(id)),
-            (id, ref) =>
-              T.gen(function* (_) {
-                yield* _(
-                  STM.commit(
-                    pipe(
-                      TRef.get(gate),
-                      STM.chain(STM.check),
-                      STM.chain(() => TRef.set_(gate, false))
-                    )
-                  )
-                )
-                const election = electionFromNameAndId(name, id)
-                const leaderMap = yield* _(REF.get(leadersNodeRef))
-                const leaderPath = HashMap.get_(leaderMap, election)
-                if (O.isSome(leaderPath)) {
-                  yield* _(cluster.leave(leaderPath.value))
-                }
-                yield* _(REF.update_(leadersRef, HashMap.remove(election)))
-                yield* _(REF.update_(leadersNodeRef, HashMap.remove(election)))
-                yield* _(REF.update_(ref, HashMap.remove(id)))
-                yield* _(STM.commit(TRef.set_(gate, true)))
-              }),
-            opts
-          )
-        )
-
-        while (1) {
-          const all = yield* _(Q.takeBetween_(queue, 1, 100))
-
-          yield* _(
-            STM.commit(
-              pipe(
-                TRef.get(gate),
-                STM.chain(STM.check),
-                STM.chain(() => TRef.set_(gate, false))
-              )
+          const name = yield* _(
+            pipe(
+              AS.resolvePath(context.address)["|>"](T.orDie),
+              T.map(([_, __, ___, actorName]) => actorName.substr(1))
             )
           )
 
-          const slots: Record<string, Chunk.Chunk<A.PendingMessage<F1>>> = {}
+          const leadersRef = yield* _(
+            REF.makeRef(
+              HashMap.make<
+                string,
+                (
+                  f: (
+                    ask: ActorRef<F1>["ask"]
+                  ) => T.Effect<R & T.DefaultEnv, Throwable, void>
+                ) => T.Effect<R & T.DefaultEnv, Throwable, void>
+              >()
+            )
+          )
 
-          for (const r of all) {
-            const id = messageToId(r[0])
-            if (!slots[id]) {
-              slots[id] = Chunk.empty()
-            }
-            slots[id] = Chunk.append_(slots[id], r)
-          }
+          const leadersNodeRef = yield* _(
+            REF.makeRef<HashMap.HashMap<string, string>>(HashMap.make())
+          )
 
-          yield* _(
-            M.forEachUnitPar_(Object.keys(slots), (id) =>
-              M.forEachUnit_(slots[id], ([a, p]) => {
-                return M.gen(function* (_) {
-                  const leaders = yield* _(REF.get(leadersRef))
+          const gate = yield* _(TRef.makeCommit(true))
+
+          const factory = yield* _(
+            runner(
+              (id) => context.make<R, S, F1>(id, SUP.none, stateful, initial(id)),
+              (id, ref) =>
+                T.gen(function* (_) {
+                  yield* _(
+                    STM.commit(
+                      pipe(
+                        TRef.get(gate),
+                        STM.chain(STM.check),
+                        STM.chain(() => TRef.set_(gate, false))
+                      )
+                    )
+                  )
                   const election = electionFromNameAndId(name, id)
-                  const cached = HashMap.get_(leaders, election)
+                  const leaderMap = yield* _(REF.get(leadersNodeRef))
+                  const leaderPath = HashMap.get_(leaderMap, election)
+                  if (O.isSome(leaderPath)) {
+                    yield* _(cluster.leave(leaderPath.value))
+                  }
+                  yield* _(REF.update_(leadersRef, HashMap.remove(election)))
+                  yield* _(REF.update_(leadersNodeRef, HashMap.remove(election)))
+                  yield* _(REF.update_(ref, HashMap.remove(id)))
+                  yield* _(STM.commit(TRef.set_(gate, true)))
+                }),
+              opts
+            )
+          )
 
-                  if (O.isSome(cached)) {
-                    yield* _(cached.value((ask) => ask(a)["|>"](T.to(p))))
-                  } else {
-                    yield* _(cluster.init(election))
+          while (1) {
+            const all = yield* _(Q.takeBetween_(queue, 1, 100))
 
-                    const leader = yield* _(cluster.leaderId(election))
+            yield* _(
+              STM.commit(
+                pipe(
+                  TRef.get(gate),
+                  STM.chain(STM.check),
+                  STM.chain(() => TRef.set_(gate, false))
+                )
+              )
+            )
 
-                    // there is a leader
-                    if (O.isSome(leader)) {
-                      if (leader.value === cluster.nodeId) {
-                        // we are the leader
-                        yield* _(
-                          REF.update_(
-                            leadersRef,
-                            HashMap.set(election, (f) =>
-                              factory.use(id)((ask) => f((a) => ask(a)))
-                            )
-                          )
-                        )
-                        yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
-                      } else {
-                        // we are not the leader, use cluster
-                        const { host, port } = yield* _(
-                          cluster.memberHostPort(leader.value)
-                        )
-                        const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
-                        const act = yield* _(context.select(recipient))
-                        yield* _(
-                          REF.update_(
-                            leadersRef,
-                            HashMap.set(election, (f) => f((a) => act.ask(a)))
-                          )
-                        )
-                        yield* _(
-                          pipe(
-                            cluster.watchLeader(election),
-                            T.chain(() =>
-                              REF.update_(leadersRef, HashMap.remove(election))
-                            ),
-                            T.fork
-                          )
-                        )
-                        yield* _(act.ask(a)["|>"](T.to(p)))
-                      }
+            const slots: Record<string, Chunk.Chunk<A.PendingMessage<F1>>> = {}
+
+            for (const r of all) {
+              const id = messageToId(r[0])
+              if (!slots[id]) {
+                slots[id] = Chunk.empty()
+              }
+              slots[id] = Chunk.append_(slots[id], r)
+            }
+
+            yield* _(
+              M.forEachUnitPar_(Object.keys(slots), (id) =>
+                M.forEachUnit_(slots[id], ([a, p]) => {
+                  return M.gen(function* (_) {
+                    const leaders = yield* _(REF.get(leadersRef))
+                    const election = electionFromNameAndId(name, id)
+                    const cached = HashMap.get_(leaders, election)
+
+                    if (O.isSome(cached)) {
+                      yield* _(cached.value((ask) => ask(a)["|>"](T.to(p))))
                     } else {
-                      // there is no leader, attempt to self elect
-                      const selfNode = yield* _(cluster.join(election))
+                      yield* _(cluster.init(election))
 
                       const leader = yield* _(cluster.leaderId(election))
 
-                      // this should never be the case
-                      if (O.isNone(leader)) {
-                        yield* _(T.die("cannot elect a leader"))
-                      } else {
-                        // we got the leadership
+                      // there is a leader
+                      if (O.isSome(leader)) {
                         if (leader.value === cluster.nodeId) {
+                          // we are the leader
                           yield* _(
                             REF.update_(
                               leadersRef,
@@ -422,14 +380,9 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                               )
                             )
                           )
-                          yield* _(
-                            REF.update_(leadersNodeRef, HashMap.set(election, selfNode))
-                          )
                           yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
                         } else {
-                          // someone else got the leadership first
-                          yield* _(cli.remove(selfNode))
-
+                          // we are not the leader, use cluster
                           const { host, port } = yield* _(
                             cluster.memberHostPort(leader.value)
                           )
@@ -452,18 +405,72 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
                           )
                           yield* _(act.ask(a)["|>"](T.to(p)))
                         }
+                      } else {
+                        // there is no leader, attempt to self elect
+                        const selfNode = yield* _(cluster.join(election))
+
+                        const leader = yield* _(cluster.leaderId(election))
+
+                        // this should never be the case
+                        if (O.isNone(leader)) {
+                          yield* _(T.die("cannot elect a leader"))
+                        } else {
+                          // we got the leadership
+                          if (leader.value === cluster.nodeId) {
+                            yield* _(
+                              REF.update_(
+                                leadersRef,
+                                HashMap.set(election, (f) =>
+                                  factory.use(id)((ask) => f((a) => ask(a)))
+                                )
+                              )
+                            )
+                            yield* _(
+                              REF.update_(
+                                leadersNodeRef,
+                                HashMap.set(election, selfNode)
+                              )
+                            )
+                            yield* _(factory.use(id)((ask) => ask(a)["|>"](T.to(p))))
+                          } else {
+                            // someone else got the leadership first
+                            yield* _(cli.remove(selfNode))
+
+                            const { host, port } = yield* _(
+                              cluster.memberHostPort(leader.value)
+                            )
+                            const recipient = `zio://${context.actorSystem.actorSystemName}@${host}:${port}/${name}/${id}`
+                            const act = yield* _(context.select(recipient))
+                            yield* _(
+                              REF.update_(
+                                leadersRef,
+                                HashMap.set(election, (f) => f((a) => act.ask(a)))
+                              )
+                            )
+                            yield* _(
+                              pipe(
+                                cluster.watchLeader(election),
+                                T.chain(() =>
+                                  REF.update_(leadersRef, HashMap.remove(election))
+                                ),
+                                T.fork
+                              )
+                            )
+                            yield* _(act.ask(a)["|>"](T.to(p)))
+                          }
+                        }
                       }
                     }
-                  }
+                  })
                 })
-              })
+              )
             )
-          )
 
-          yield* _(STM.commit(TRef.set_(gate, true)))
-        }
+            yield* _(STM.commit(TRef.set_(gate, true)))
+          }
 
-        return yield* _(T.never)
-      })
+          return yield* _(T.never)
+        })
+      )
     )
   )
