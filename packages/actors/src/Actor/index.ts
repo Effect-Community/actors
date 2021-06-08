@@ -69,6 +69,10 @@ export class Actor<F1 extends AM.AnyMessage> {
   )
 }
 
+export interface Emitter<Ev> {
+  emit: (event: Ev) => T.Effect<unknown, Throwable, void>
+}
+
 export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
   abstract readonly messages: AM.MessageRegistry<F1>
   abstract makeActor(
