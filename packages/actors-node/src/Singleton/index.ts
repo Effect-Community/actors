@@ -24,7 +24,7 @@ import * as O from "@effect-ts/core/Option"
 import type * as K from "@effect-ts/keeper"
 
 import { Cluster } from "../Cluster"
-import { ShardContext } from "../Shards"
+import { ShardContext } from "../ShardContext"
 
 export function makeSingleton<R, S, F1 extends AM.AnyMessage>(
   stateful: A.AbstractStateful<R & Has<ShardContext>, S, F1>

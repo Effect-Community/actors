@@ -1,15 +1,23 @@
+import type { Throwable } from "@effect-ts/actors/Common"
+import { Case } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
+import * as HM from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as T from "@effect-ts/core/Effect"
+import * as ST from "@effect-ts/core/Effect/Experimental/Stream"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
+import * as REF from "@effect-ts/core/Effect/Ref"
 import { pipe } from "@effect-ts/core/Function"
 import type { Has } from "@effect-ts/core/Has"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as PG from "@effect-ts/pg"
+import * as S from "@effect-ts/schema"
+import * as P from "@effect-ts/schema/Parser"
 import { identity } from "@effect-ts/system/Function"
+import type { QueryResultRow } from "pg"
 
-import { computeShardForId, ShardContext } from "../Shards"
+import { computeShardForId, ShardContext } from "../ShardContext"
 
 export interface Persistence {
   readonly transaction: (
@@ -56,9 +64,24 @@ export interface Persistence {
   >
 
   readonly setup: T.Effect<Has<ShardContext>, never, void>
+
+  readonly eventStream: <S>(
+    messages: S.Standard<S, unknown>
+  ) => (offsets: Chunk.Chunk<Offset>) => ST.Stream<unknown, Throwable, Event<Offset, S>>
 }
 
+export class Event<Offset, S> extends Case<{ offset: Offset; event: S }> {}
+
 export const Persistence = tag<Persistence>()
+
+@S.stable
+export class Offset extends S.Model<Offset>()(
+  S.props({
+    domain: S.prop(S.string),
+    shard: S.prop(S.number),
+    sequence: S.prop(S.number)
+  })
+) {}
 
 export const LivePersistence = L.fromManaged(Persistence)(
   M.gen(function* (_) {
@@ -104,6 +127,85 @@ export const LivePersistence = L.fromManaged(Persistence)(
         shards          integer
       );`)
     )
+
+    const eventStream =
+      <S>(messages: S.Standard<S>) =>
+      (offsets: Chunk.Chunk<Offset>) =>
+        T.gen(function* (_) {
+          const parse = P.for(messages)["|>"](S.condemnFail)
+
+          const currentRef = yield* _(
+            REF.makeRef(HM.make<`${string}-${number}`, Offset>())
+          )
+
+          for (const offset of offsets) {
+            yield* _(
+              REF.update_(
+                currentRef,
+                HM.set(`${offset.domain}-${offset.sequence}` as const, offset)
+              )
+            )
+          }
+
+          const poll: T.Effect<
+            unknown,
+            O.Option<never>,
+            Chunk.Chunk<QueryResultRow>
+          > = pipe(
+            REF.get(currentRef),
+            T.chain((co) =>
+              T.forEachPar_(co, ([_, o]) =>
+                pipe(
+                  cli.query(
+                    `SELECT * FROM "event_journal" WHERE "domain" = $1::text AND "shard" = $2::integer AND "shard_sequence" > $3::integer ORDER BY "shard_sequence" ASC LIMIT 25`,
+                    [o.domain, o.shard, o.sequence]
+                  ),
+                  T.map((_) => _.rows),
+                  T.tap((_) => {
+                    if (_.length > 0) {
+                      const last = _[_.length - 1]
+
+                      return REF.update_(
+                        currentRef,
+                        HM.set(
+                          `${last["domain"]}-${last["shard"]}` as const,
+                          new Offset({
+                            domain: last["domain"],
+                            shard: last["shard"],
+                            sequence: last["shard_sequence"]
+                          })
+                        )
+                      )
+                    }
+                    return T.unit
+                  }),
+                  T.map(Chunk.from)
+                )
+              )
+            ),
+            T.map(Chunk.flatten)
+          )
+
+          return pipe(
+            ST.repeatEffectChunkOption(poll),
+            ST.mapM((row) =>
+              pipe(
+                parse(row["event"]["event"]),
+                T.map(
+                  (event) =>
+                    new Event({
+                      event,
+                      offset: new Offset({
+                        domain: row["domain"],
+                        shard: row["shard"],
+                        sequence: row["shard_sequence"]
+                      })
+                    })
+                )
+              )
+            )
+          )
+        })["|>"](ST.unwrap)
 
     const setup: T.Effect<Has<ShardContext>, never, void> = cli.transaction(
       T.gen(function* (_) {
@@ -296,7 +398,8 @@ export const LivePersistence = L.fromManaged(Persistence)(
       set,
       emit,
       events,
-      setup
+      setup,
+      eventStream
     })
   })
 )

@@ -1,9 +1,12 @@
 import { ActorSystemTag, LiveActorSystem } from "@effect-ts/actors/ActorSystem"
 import * as AM from "@effect-ts/actors/Message"
 import * as SUP from "@effect-ts/actors/Supervisor"
+import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
+import * as ST from "@effect-ts/core/Effect/Experimental/Stream"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
+import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
@@ -15,7 +18,7 @@ import { matchTag_ } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
 import * as D from "../src/Distributed"
-import { LivePersistence } from "../src/Persistence"
+import { Event, LivePersistence, Offset, Persistence } from "../src/Persistence"
 import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
 import { transactional } from "../src/Transactional"
 import { TestPG } from "./pg"
@@ -66,10 +69,12 @@ class Initial extends S.Model<Initial>()(
   S.props({ _tag: S.prop(S.literal("Initial")) })
 ) {}
 
+const UserEvents = S.string
+
 const userHandler = transactional(
   Message,
   S.union({ Initial, User }),
-  O.some(S.string)
+  O.some(UserEvents)
 )(({ event, state }) => ({
   Create: ({ id }) =>
     T.gen(function* (_) {
@@ -189,5 +194,44 @@ describe("Distributed", () => {
       expect(
         (yield* _(PG.query("SELECT * FROM domain_journal ORDER BY domain ASC"))).rows
       ).toEqual([{ domain: "EffectTsActorsDemo(users)", shards: 16 }])
+
+      const { eventStream } = yield* _(Persistence)
+
+      expect(
+        yield* _(
+          pipe(
+            eventStream(UserEvents)(
+              Chunk.many(
+                new Offset({
+                  domain: "EffectTsActorsDemo(users)",
+                  shard: 3,
+                  sequence: 0
+                })
+              )
+            ),
+            ST.take(2),
+            ST.runCollect
+          )
+        )
+      ).equals(
+        Chunk.many(
+          new Event({
+            event: "create-user",
+            offset: new Offset({
+              domain: "EffectTsActorsDemo(users)",
+              shard: 3,
+              sequence: 1
+            })
+          }),
+          new Event({
+            event: "setup-user",
+            offset: new Offset({
+              domain: "EffectTsActorsDemo(users)",
+              shard: 3,
+              sequence: 2
+            })
+          })
+        )
+      )
     }))
 })

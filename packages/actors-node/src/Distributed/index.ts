@@ -20,7 +20,7 @@ import * as O from "@effect-ts/core/Option"
 import { KeeperClient } from "@effect-ts/keeper"
 
 import { Cluster } from "../Cluster"
-import { ShardContext } from "../Shards"
+import { ShardContext } from "../ShardContext"
 
 export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
   name: N

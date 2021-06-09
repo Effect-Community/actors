@@ -21,7 +21,7 @@ import * as Parser from "@effect-ts/schema/Parser"
 import type { Tuple } from "@effect-ts/system/Collections/Immutable/Tuple"
 
 import { Persistence } from "../Persistence"
-import type { ShardContext } from "../Shards"
+import type { ShardContext } from "../ShardContext"
 
 export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
   messages: AM.MessageRegistry<F1>,
