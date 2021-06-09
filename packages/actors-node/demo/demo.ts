@@ -77,16 +77,14 @@ const userHandler = transactional(
       yield* _(event.emit("setup-user"))
       const user = new User({ id })
       yield* _(state.set(user))
-      return yield* _(T.succeed(user))
+      return user
     }),
   Get: () =>
     T.gen(function* (_) {
-      const maybeUser = matchTag_(yield* _(state.get), {
+      return matchTag_(yield* _(state.get), {
         Initial: () => new UserNotFound({}),
         User: (_) => _
       })
-
-      return yield* _(T.succeed(maybeUser))
     })
 }))
 
