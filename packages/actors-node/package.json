@@ -29,7 +29,7 @@
       "Distributed",
       "Persistence",
       "Remote",
-      "Shards",
+      "ShardContext",
       "Singleton",
       "Transactional"
     ]

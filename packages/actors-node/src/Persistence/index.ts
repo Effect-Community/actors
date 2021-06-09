@@ -67,7 +67,9 @@ export interface Persistence {
 
   readonly eventStream: <S>(
     messages: S.Standard<S, unknown>
-  ) => (offsets: Chunk.Chunk<Offset>) => ST.Stream<unknown, Throwable, Event<Offset, S>>
+  ) => (
+    offsets: Chunk.Chunk<Offset>
+  ) => ST.Stream<T.DefaultEnv, Throwable, Event<Offset, S>>
 }
 
 export class Event<Offset, S> extends Case<{ offset: Offset; event: S }> {}
@@ -129,7 +131,7 @@ export const LivePersistence = L.fromManaged(Persistence)(
     )
 
     const eventStream =
-      <S>(messages: S.Standard<S>) =>
+      <S>(messages: S.Standard<S>, delay?: number) =>
       (offsets: Chunk.Chunk<Offset>) =>
         T.gen(function* (_) {
           const parse = P.for(messages)["|>"](S.condemnFail)
@@ -138,23 +140,29 @@ export const LivePersistence = L.fromManaged(Persistence)(
             REF.makeRef(HM.make<`${string}-${number}`, Offset>())
           )
 
+          const delayRef = yield* _(REF.makeRef(0))
+
           for (const offset of offsets) {
             yield* _(
               REF.update_(
                 currentRef,
-                HM.set(`${offset.domain}-${offset.sequence}` as const, offset)
+                HM.set(`${offset.domain}-${offset.shard}` as const, offset)
               )
             )
           }
 
           const poll: T.Effect<
-            unknown,
+            T.DefaultEnv,
             O.Option<never>,
             Chunk.Chunk<QueryResultRow>
           > = pipe(
-            REF.get(currentRef),
-            T.chain((co) =>
-              T.forEachPar_(co, ([_, o]) =>
+            T.zip_(
+              REF.get(currentRef),
+              REF.getAndUpdate_(delayRef, () => delay ?? 1_000)
+            ),
+            T.tap(({ tuple: [_co, delay] }) => (delay > 0 ? T.sleep(delay) : T.unit)),
+            T.chain(({ tuple: [co, _delay] }) =>
+              T.forEachPar_(HM.values(co), (o) =>
                 pipe(
                   cli.query(
                     `SELECT * FROM "event_journal" WHERE "domain" = $1::text AND "shard" = $2::integer AND "shard_sequence" > $3::integer ORDER BY "shard_sequence" ASC LIMIT 25`,

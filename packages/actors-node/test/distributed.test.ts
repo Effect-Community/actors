@@ -200,15 +200,16 @@ describe("Distributed", () => {
       expect(
         yield* _(
           pipe(
-            eventStream(UserEvents)(
-              Chunk.many(
+            Chunk.range(1, 16),
+            Chunk.map(
+              (n) =>
                 new Offset({
                   domain: "EffectTsActorsDemo(users)",
-                  shard: 3,
+                  shard: n,
                   sequence: 0
                 })
-              )
             ),
+            eventStream(UserEvents),
             ST.take(2),
             ST.runCollect
           )
