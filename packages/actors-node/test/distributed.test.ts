@@ -61,6 +61,7 @@ class Create extends AM.Message(
 const Message = AM.messages(Get, Create)
 type Message = AM.TypeOf<typeof Message>
 
+@S.stable
 class Initial extends S.Model<Initial>()(
   S.props({ _tag: S.prop(S.literal("Initial")) })
 ) {}
