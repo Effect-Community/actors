@@ -70,32 +70,28 @@ const userHandler = transactional(
   Message,
   S.union({ Initial, User }),
   O.some(S.string)
-)(
-  ({ event, state }) =>
-    (msg) =>
-      T.gen(function* (_) {
-        switch (msg._tag) {
-          case "Get": {
-            const maybeUser = matchTag_(yield* _(state.get), {
-              Initial: () => new UserNotFound({}),
-              User: (_) => _
-            })
-
-            return yield* _(msg.handle(T.succeed(maybeUser)))
-          }
-          case "Create": {
-            if ((yield* _(state.get))._tag !== "Initial") {
-              return yield* _(msg.handle(T.succeed(new UserAlreadyCreated({}))))
-            }
-            yield* _(event.emit("create-user"))
-            yield* _(event.emit("setup-user"))
-            const user = new User({ id: msg.payload.id })
-            yield* _(state.set(user))
-            return yield* _(msg.handle(T.succeed(user)))
-          }
-        }
+)(({ event, state }) => ({
+  Create: ({ id }) =>
+    T.gen(function* (_) {
+      if ((yield* _(state.get))._tag !== "Initial") {
+        return yield* _(T.succeed(new UserAlreadyCreated({})))
+      }
+      yield* _(event.emit("create-user"))
+      yield* _(event.emit("setup-user"))
+      const user = new User({ id })
+      yield* _(state.set(user))
+      return yield* _(T.succeed(user))
+    }),
+  Get: () =>
+    T.gen(function* (_) {
+      const maybeUser = matchTag_(yield* _(state.get), {
+        Initial: () => new UserNotFound({}),
+        User: (_) => _
       })
-)
+
+      return yield* _(T.succeed(maybeUser))
+    })
+}))
 
 export const makeUsersService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)

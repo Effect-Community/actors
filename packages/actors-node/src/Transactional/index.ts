@@ -13,30 +13,26 @@ import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
 import type { Has } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
+import type { UnionToIntersection } from "@effect-ts/core/Utils"
 import type * as SCH from "@effect-ts/schema"
 import * as S from "@effect-ts/schema"
 import * as Encoder from "@effect-ts/schema/Encoder"
 import * as Parser from "@effect-ts/schema/Parser"
-import { identity } from "@effect-ts/system/Function"
 
 import { Persistence } from "../Persistence"
-
-export type TransactionalEnvelope<F1 extends AM.AnyMessage> = {
-  [Tag in AM.TagsOf<F1>]: {
-    _tag: Tag
-    payload: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
-    handle: <R, E>(
-      _: T.Effect<R, E, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>>
-    ) => T.Effect<R, E, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>>
-  }
-}[AM.TagsOf<F1>]
 
 export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
   messages: AM.MessageRegistry<F1>,
   stateSchema: SCH.Standard<S>,
   eventSchema: O.Option<SCH.Standard<Ev>>
 ) {
-  return <R>(
+  return <
+    X extends {
+      [Tag in AM.TagsOf<F1>]: (
+        _: AM.ExtractTagged<F1, Tag>
+      ) => T.Effect<any, any, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>>
+    }
+  >(
     receive: (
       dsl: {
         state: {
@@ -48,10 +44,32 @@ export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
         }
       },
       context: AS.Context<F1>
-    ) => (
-      msg: TransactionalEnvelope<F1>
-    ) => T.Effect<R, Throwable, AM.ResponseOf<AM.ExtractTagged<F1, F1["_tag"]>>>
-  ) => new Transactional<R, S, Ev, F1>(messages, stateSchema, eventSchema, receive)
+    ) => X
+  ) =>
+    new Transactional<
+      UnionToIntersection<
+        {
+          [Tag in AM.TagsOf<F1>]: Tag extends keyof X
+            ? [X[Tag]] extends [
+                (
+                  _: AM.ExtractTagged<F1, Tag>
+                ) => T.Effect<
+                  infer R,
+                  Throwable,
+                  AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
+                >
+              ]
+              ? unknown extends R
+                ? never
+                : R
+              : never
+            : never
+        }[AM.TagsOf<F1>]
+      >,
+      S,
+      Ev,
+      F1
+    >(messages, stateSchema, eventSchema, receive)
 }
 
 export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractStateful<
@@ -59,6 +77,30 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
   S,
   F1
 > {
+  constructor(
+    readonly messages: AM.MessageRegistry<F1>,
+    readonly stateSchema: SCH.Standard<S>,
+    readonly eventSchema: O.Option<SCH.Standard<Ev>>,
+    readonly receive: (
+      dsl: {
+        state: {
+          get: T.UIO<S>
+          set: (s: S) => T.UIO<void>
+        }
+        event: {
+          emit: (e: Ev) => T.UIO<void>
+        }
+      },
+      context: AS.Context<F1>
+    ) => {
+      [Tag in AM.TagsOf<F1>]: (
+        _: AM.ExtractTagged<F1, Tag>
+      ) => T.Effect<R, Throwable, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>>
+    }
+  ) {
+    super()
+  }
+
   private readonly dbStateSchema = S.props({
     current: S.prop(this.stateSchema)
   })
@@ -114,28 +156,6 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     })
   }
 
-  constructor(
-    readonly messages: AM.MessageRegistry<F1>,
-    readonly stateSchema: SCH.Standard<S>,
-    readonly eventSchema: O.Option<SCH.Standard<Ev>>,
-    readonly receive: (
-      dsl: {
-        state: {
-          get: T.UIO<S>
-          set: (s: S) => T.UIO<void>
-        }
-        event: {
-          emit: (e: Ev) => T.UIO<void>
-        }
-      },
-      context: AS.Context<F1>
-    ) => (
-      msg: TransactionalEnvelope<F1>
-    ) => T.Effect<R, Throwable, AM.ResponseOf<AM.ExtractTagged<F1, F1["_tag"]>>>
-  ) {
-    super()
-  }
-
   defaultMailboxSize = 10000
 
   makeActor(
@@ -172,7 +192,9 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
                       state: { get: REF.get(_.state), set: (s) => REF.set_(_.state, s) }
                     },
                     context
-                  )({ _tag: _.fa._tag as any, payload: _.fa as any, handle: identity })
+                  )[_.fa._tag as AM.TagsOf<F1>](
+                    _.fa as AM.ExtractTagged<F1, AM.TagsOf<F1>>
+                  )
                 }),
                 T.let(
                   "completer",

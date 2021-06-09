@@ -74,21 +74,14 @@ const statefulHandler = transactional(
   Message,
   S.number,
   O.none
-)(({ state }) => (msg) => {
-  switch (msg._tag) {
-    case "Get": {
-      return msg.handle(state.get)
-    }
-    case "Increase": {
-      return msg.handle(
-        pipe(
-          state.get,
-          T.chain((n) => state.set(n + 1))
-        )
-      )
-    }
-  }
-})
+)(({ state }) => ({
+  Get: () => state.get,
+  Increase: () =>
+    pipe(
+      state.get,
+      T.chain((n) => state.set(n + 1))
+    )
+}))
 
 export const makeProcessService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)
