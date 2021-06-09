@@ -149,17 +149,19 @@ describe("Distributed", () => {
       expect((yield* _(PG.query("SELECT * FROM event_journal"))).rows).toEqual([
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
-          shard_sequence: 1,
+          domain: "EffectTsActorsDemo(users)",
           shard: 3,
-          event_sequence: 1,
-          event: { event: "create-user" }
+          shard_sequence: 1,
+          event: { event: "create-user" },
+          event_sequence: 1
         },
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
+          domain: "EffectTsActorsDemo(users)",
           shard_sequence: 2,
           shard: 3,
-          event_sequence: 2,
-          event: { event: "setup-user" }
+          event: { event: "setup-user" },
+          event_sequence: 2
         }
       ])
       expect(

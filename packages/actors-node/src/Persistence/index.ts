@@ -47,6 +47,7 @@ export interface Persistence {
     never,
     Chunk.Chunk<{
       persistenceId: string
+      domain: string
       shard: number
       shardSequence: number
       event: unknown
@@ -77,6 +78,7 @@ export const LivePersistence = L.fromManaged(Persistence)(
       cli.query(`
       CREATE TABLE IF NOT EXISTS "event_journal" (
         persistence_id  text,
+        domain          text,
         shard_sequence  integer,
         shard           integer,
         event_sequence  integer,
@@ -187,6 +189,7 @@ export const LivePersistence = L.fromManaged(Persistence)(
       never,
       Chunk.Chunk<{
         persistenceId: string
+        domain: string
         shard: number
         shardSequence: number
         event: unknown
@@ -206,6 +209,7 @@ export const LivePersistence = L.fromManaged(Persistence)(
             Chunk.from(res.rows),
             Chunk.map((row) => ({
               persistenceId: row.actor_name,
+              domain: row.domain,
               shard: row.shard,
               shardSequence: row.shard_sequence,
               event: row["event"],
@@ -263,8 +267,14 @@ export const LivePersistence = L.fromManaged(Persistence)(
                     Chunk.zipWithIndexOffset_(events, shard_sequence + 1),
                     ({ tuple: [{ eventSequence, value }, shard_sequence_i] }) =>
                       cli.query(
-                        `INSERT INTO "event_journal" ("persistence_id", "shard", "event", "event_sequence", "shard_sequence") VALUES('${persistenceId}', $2::integer, $1::jsonb, $3::integer, $4::integer)`,
-                        [JSON.stringify(value), shard, eventSequence, shard_sequence_i]
+                        `INSERT INTO "event_journal" ("persistence_id", "shard", "event", "event_sequence", "shard_sequence", "domain") VALUES('${persistenceId}', $2::integer, $1::jsonb, $3::integer, $4::integer, $5::text)`,
+                        [
+                          JSON.stringify(value),
+                          shard,
+                          eventSequence,
+                          shard_sequence_i,
+                          domain
+                        ]
                       )
                   ),
                   T.chain(() =>
