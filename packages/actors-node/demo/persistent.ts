@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
+import { ActorSystemTag, LiveActorSystem } from "@effect-ts/actors/ActorSystem"
+import * as AM from "@effect-ts/actors/Message"
+import * as SUP from "@effect-ts/actors/Supervisor"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
@@ -12,16 +15,13 @@ import * as R from "@effect-ts/node/Runtime"
 import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
 
-import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
-import * as AM from "../src/Message"
 import {
   makeRemotingExpressConfig,
   RemotingExpress,
   RemotingExpressConfig
 } from "../src/Remote"
 import * as Singleton from "../src/Singleton"
-import * as SUP from "../src/Supervisor"
 import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
