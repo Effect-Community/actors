@@ -15,8 +15,9 @@ import { matchTag_ } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
 import * as D from "../src/Distributed"
+import { LivePersistence } from "../src/Persistence"
 import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
-import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
+import { transactional } from "../src/Transactional"
 import { TestPG } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
@@ -28,7 +29,7 @@ const AppLayer = LiveActorSystem("EffectTsActorsDemo")
   [">+>"](Remoting)
   [">+>"](Cluster.LiveCluster)
   ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
-  ["<+<"](LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPG)))
+  ["<+<"](LivePersistence["<+<"](PG.LivePG["<<<"](TestPG)))
 
 @S.stable
 class User extends S.Model<User>()(

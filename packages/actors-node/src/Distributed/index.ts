@@ -19,7 +19,7 @@ import * as O from "@effect-ts/core/Option"
 import { KeeperClient } from "@effect-ts/keeper"
 
 import { Cluster } from "../Cluster"
-import { ShardConfig } from "../Transactional"
+import { Shards } from "../Shards"
 
 export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
   name: N
@@ -269,7 +269,7 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
   }
 ) =>
   new A.ActorProxy(stateful.messages, (queue, context, initial: (id: string) => S) =>
-    T.provide(opts?.shards ? ShardConfig.of({ shards: opts.shards }) : {})(
+    T.provide(opts?.shards ? Shards.of({ shards: opts.shards }) : {})(
       M.useNow(
         M.gen(function* (_) {
           const cluster = yield* _(Cluster)

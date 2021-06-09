@@ -8,21 +8,18 @@ import type * as SUP from "@effect-ts/actors/Supervisor"
 import { Chunk, pipe } from "@effect-ts/core"
 import * as T from "@effect-ts/core/Effect"
 import { pretty } from "@effect-ts/core/Effect/Cause"
-import * as L from "@effect-ts/core/Effect/Layer"
-import * as M from "@effect-ts/core/Effect/Managed"
 import * as P from "@effect-ts/core/Effect/Promise"
 import * as Q from "@effect-ts/core/Effect/Queue"
 import * as REF from "@effect-ts/core/Effect/Ref"
 import type { Has } from "@effect-ts/core/Has"
-import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
-import { hash } from "@effect-ts/core/Structural"
-import * as PG from "@effect-ts/pg"
 import type * as SCH from "@effect-ts/schema"
 import * as S from "@effect-ts/schema"
 import * as Encoder from "@effect-ts/schema/Encoder"
 import * as Parser from "@effect-ts/schema/Parser"
 import { identity } from "@effect-ts/system/Function"
+
+import { Persistence } from "../Persistence"
 
 export type TransactionalEnvelope<F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: {
@@ -57,161 +54,8 @@ export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
   ) => new Transactional<R, S, Ev, F1>(messages, stateSchema, eventSchema, receive)
 }
 
-export interface StateStorageAdapter {
-  readonly transaction: (
-    persistenceId: string
-  ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A>
-
-  readonly get: (persistenceId: string) => T.Effect<
-    unknown,
-    never,
-    O.Option<{
-      persistenceId: string
-      shard: number
-      state: unknown
-      event_sequence: number
-    }>
-  >
-
-  readonly set: (
-    persistenceId: string,
-    value: unknown,
-    event_sequence: number
-  ) => T.Effect<unknown, never, void>
-
-  readonly emit: (
-    persistenceId: string,
-    value: unknown,
-    event_sequence: number
-  ) => T.Effect<unknown, never, void>
-}
-
-export const StateStorageAdapter = tag<StateStorageAdapter>()
-
-export interface ShardConfig {
-  shards: number
-}
-
-export const ShardConfig = tag<ShardConfig>()
-
-export const LiveStateStorageAdapter = L.fromManaged(StateStorageAdapter)(
-  M.gen(function* (_) {
-    const cli = yield* _(PG.PG)
-
-    yield* _(
-      cli.query(`
-      CREATE TABLE IF NOT EXISTS "state_journal" (
-        persistence_id  text PRIMARY KEY,
-        shard           integer,
-        event_sequence  integer,
-        state           jsonb
-      );`)
-    )
-
-    yield* _(
-      cli.query(`
-      CREATE TABLE IF NOT EXISTS "event_journal" (
-        persistence_id  text,
-        shard           integer,
-        sequence        integer,
-        event           jsonb,
-        PRIMARY KEY(persistence_id, sequence)
-      );`)
-    )
-
-    const transaction: (
-      persistenceId: string
-    ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A> = () =>
-      cli.transaction
-
-    const get: (persistenceId: string) => T.Effect<
-      unknown,
-      never,
-      O.Option<{
-        persistenceId: string
-        shard: number
-        state: unknown
-        event_sequence: number
-      }>
-    > = (persistenceId) =>
-      pipe(
-        cli.query(
-          `SELECT * FROM "state_journal" WHERE "persistence_id" = '${persistenceId}'`
-        ),
-        T.map((res) =>
-          pipe(
-            O.fromNullable(res.rows?.[0]),
-            O.map((row) => ({
-              persistenceId: row.actor_name,
-              shard: row.shard,
-              state: row["state"],
-              event_sequence: row.event_sequence
-            }))
-          )
-        )
-      )
-
-    const set: (
-      persistenceId: string,
-      value: unknown,
-      event_sequence: number
-    ) => T.Effect<unknown, never, void> = (persistenceId, value, event_sequence) =>
-      pipe(
-        calcShard(persistenceId),
-        T.chain((shard) =>
-          cli.query(
-            `INSERT INTO "state_journal" ("persistence_id", "shard", "state", "event_sequence") VALUES('${persistenceId}', $2::integer, $1::jsonb, $3::integer) ON CONFLICT ("persistence_id") DO UPDATE SET "state" = $1::jsonb, "event_sequence" = $3::integer`,
-            [JSON.stringify(value), shard, event_sequence]
-          )
-        ),
-        T.asUnit
-      )
-
-    const emit: (
-      persistenceId: string,
-      value: unknown,
-      event_sequence: number
-    ) => T.Effect<unknown, never, void> = (persistenceId, value, event_sequence) =>
-      pipe(
-        calcShard(persistenceId),
-        T.chain((shard) =>
-          cli.query(
-            `INSERT INTO "event_journal" ("persistence_id", "shard", "event", "sequence") VALUES('${persistenceId}', $2::integer, $1::jsonb, $3::integer)`,
-            [JSON.stringify(value), shard, event_sequence]
-          )
-        ),
-        T.asUnit
-      )["|>"](
-        T.tapCause((c) =>
-          T.succeedWith(() => {
-            console.log(pretty(c))
-          })
-        )
-      )
-
-    return identity<StateStorageAdapter>({
-      transaction,
-      get,
-      set,
-      emit
-    })
-  })
-)
-
-const mod = (m: number) => (x: number) => x < 0 ? (x % m) + m : x % m
-
-const calcShard = (id: string) =>
-  T.access((r: unknown) => {
-    const maybe = ShardConfig.readOption(r)
-    if (O.isSome(maybe)) {
-      return mod(maybe.value.shards)(hash(id))
-    } else {
-      return mod(16)(hash(id))
-    }
-  })
-
 export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractStateful<
-  R & Has<StateStorageAdapter>,
+  R & Has<Persistence>,
   S,
   F1
 > {
@@ -233,7 +77,7 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     const self = this
 
     return T.gen(function* (_) {
-      const { get } = yield* _(StateStorageAdapter)
+      const { get } = yield* _(Persistence)
 
       const state = yield* _(get(actorName))
 
@@ -252,7 +96,7 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     const self = this
 
     return T.gen(function* (_) {
-      const { set } = yield* _(StateStorageAdapter)
+      const { set } = yield* _(Persistence)
 
       yield* _(set(actorName, self.encodeState({ current }), sequence))
     })
@@ -263,7 +107,7 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     const self = this
 
     return T.gen(function* (_) {
-      const { emit } = yield* _(StateStorageAdapter)
+      const { emit } = yield* _(Persistence)
       const encode = yield* _(self.encodeEvent)
 
       yield* _(emit(actorName, encode({ event }), sequence))
@@ -299,12 +143,12 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
-  ): (initial: S) => T.RIO<R & T.DefaultEnv & Has<StateStorageAdapter>, Actor<F1>> {
+  ): (initial: S) => T.RIO<R & T.DefaultEnv & Has<Persistence>, Actor<F1>> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
 
     const process = (msg: PendingMessage<F1>, initial: S) => {
-      return T.accessServicesM({ prov: StateStorageAdapter })(({ prov }) =>
+      return T.accessServicesM({ prov: Persistence })(({ prov }) =>
         pipe(
           AS.resolvePath(context.address)["|>"](T.orDie),
           T.map(([sysName, __, ___, actorName]) => `${sysName}(${actorName})`),

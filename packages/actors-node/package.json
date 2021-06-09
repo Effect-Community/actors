@@ -24,7 +24,15 @@
   },
   "sideEffects": false,
   "config": {
-    "modules": []
+    "modules": [
+      "Cluster",
+      "Distributed",
+      "Persistence",
+      "Remote",
+      "Shards",
+      "Singleton",
+      "Transactional"
+    ]
   },
   "peerDependencies": {
     "@effect-ts/core": "^0.40.0"

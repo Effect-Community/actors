@@ -16,13 +16,14 @@ import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
 
 import * as Cluster from "../src/Cluster"
+import { LivePersistence } from "../src/Persistence"
 import {
   makeRemotingExpressConfig,
   RemotingExpress,
   RemotingExpressConfig
 } from "../src/Remote"
 import * as Singleton from "../src/Singleton"
-import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
+import { transactional } from "../src/Transactional"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
   [">>>"](RemotingExpress[">+>"](Cluster.LiveCluster))
@@ -44,7 +45,7 @@ const AppLayer = LiveActorSystem("EffectTsActorsDemo")
     )
   )
   ["<+<"](
-    LiveStateStorageAdapter["<+<"](
+    LivePersistence["<+<"](
       PG.LivePG["<<<"](
         L.fromEffect(PG.PGConfig)(
           T.succeed(
