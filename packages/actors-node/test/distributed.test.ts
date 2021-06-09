@@ -136,29 +136,53 @@ describe("Distributed", () => {
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
           state: { current: { _tag: "User", id: "mike" } },
-          shard: 7,
+          shard: 2,
           event_sequence: 2
         },
         {
           persistence_id: "EffectTsActorsDemo(/users/mike-2)",
           state: { current: { _tag: "Initial" } },
-          shard: 8,
+          shard: 13,
           event_sequence: 0
         }
       ])
       expect((yield* _(PG.query("SELECT * FROM event_journal"))).rows).toEqual([
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
-          shard: 7,
-          sequence: 1,
+          shard_sequence: 1,
+          shard: 2,
+          event_sequence: 1,
           event: { event: "create-user" }
         },
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
-          shard: 7,
-          sequence: 2,
+          shard_sequence: 2,
+          shard: 2,
+          event_sequence: 2,
           event: { event: "setup-user" }
         }
+      ])
+      expect(
+        (yield* _(
+          PG.query("SELECT * FROM shard_journal ORDER BY domain ASC, shard ASC")
+        )).rows
+      ).toEqual([
+        { domain: "EffectTsActorsDemo(users)", shard: 1, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 2, sequence: 2 },
+        { domain: "EffectTsActorsDemo(users)", shard: 3, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 4, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 5, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 6, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 7, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 8, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 9, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 10, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 11, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 12, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 13, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 14, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 15, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 16, sequence: 0 }
       ])
     }))
 })

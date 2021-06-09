@@ -1,21 +1,23 @@
-import { Chunk, pipe } from "@effect-ts/core"
+import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
+import { pipe } from "@effect-ts/core/Function"
+import type { Has } from "@effect-ts/core/Has"
 import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import * as PG from "@effect-ts/pg"
 import { identity } from "@effect-ts/system/Function"
 
-import { computeShardForId } from "../Shards"
+import { computeShardForId, ShardContext } from "../Shards"
 
 export interface Persistence {
   readonly transaction: (
     persistenceId: string
-  ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A>
+  ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R & Has<ShardContext>, E, A>
 
   readonly get: (persistenceId: string) => T.Effect<
-    unknown,
+    Has<ShardContext>,
     never,
     O.Option<{
       persistenceId: string
@@ -29,29 +31,30 @@ export interface Persistence {
     persistenceId: string,
     value: unknown,
     event_sequence: number
-  ) => T.Effect<unknown, never, void>
+  ) => T.Effect<Has<ShardContext>, never, void>
 
   readonly emit: (
     persistenceId: string,
-    value: unknown,
-    event_sequence: number
-  ) => T.Effect<unknown, never, void>
+    events: Chunk.Chunk<{ value: unknown; eventSequence: number }>
+  ) => T.Effect<Has<ShardContext>, never, void>
 
   readonly events: (
     persistenceId: string,
-    shard: number,
     from: number,
     size: number
   ) => T.Effect<
-    unknown,
+    Has<ShardContext>,
     never,
     Chunk.Chunk<{
       persistenceId: string
       shard: number
+      shardSequence: number
       event: unknown
-      sequence: number
+      eventSequence: number
     }>
   >
+
+  readonly setup: T.Effect<Has<ShardContext>, never, void>
 }
 
 export const Persistence = tag<Persistence>()
@@ -74,20 +77,43 @@ export const LivePersistence = L.fromManaged(Persistence)(
       cli.query(`
       CREATE TABLE IF NOT EXISTS "event_journal" (
         persistence_id  text,
+        shard_sequence  integer,
+        shard           integer,
+        event_sequence  integer,
+        event           jsonb,
+        PRIMARY KEY(persistence_id, event_sequence)
+      );`)
+    )
+
+    yield* _(
+      cli.query(`
+      CREATE TABLE IF NOT EXISTS "shard_journal" (
+        domain          text,
         shard           integer,
         sequence        integer,
-        event           jsonb,
-        PRIMARY KEY(persistence_id, sequence)
+        PRIMARY KEY(domain, shard)
       );`)
+    )
+
+    const setup: T.Effect<Has<ShardContext>, never, void> = pipe(
+      T.accessServiceM(ShardContext)((_) =>
+        T.forEach_(Chunk.range(1, _.shards), (i) =>
+          cli.query(
+            `INSERT INTO "shard_journal" ("domain", "shard", "sequence") VALUES($1::text, $2::integer, 0) ON CONFLICT ("domain","shard") DO NOTHING`,
+            [_.domain, i]
+          )
+        )
+      ),
+      T.asUnit
     )
 
     const transaction: (
       persistenceId: string
-    ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R, E, A> = () =>
-      cli.transaction
+    ) => <R, E, A>(effect: T.Effect<R, E, A>) => T.Effect<R & Has<ShardContext>, E, A> =
+      () => cli.transaction
 
     const get: (persistenceId: string) => T.Effect<
-      unknown,
+      Has<ShardContext>,
       never,
       O.Option<{
         persistenceId: string
@@ -97,8 +123,12 @@ export const LivePersistence = L.fromManaged(Persistence)(
       }>
     > = (persistenceId) =>
       pipe(
-        cli.query(
-          `SELECT * FROM "state_journal" WHERE "persistence_id" = '${persistenceId}'`
+        computeShardForId(persistenceId),
+        T.chain((shard) =>
+          cli.query(
+            `SELECT * FROM "state_journal" WHERE "persistence_id" = '${persistenceId}' AND "shard" = $1::integer`,
+            [shard]
+          )
         ),
         T.map((res) =>
           pipe(
@@ -118,19 +148,23 @@ export const LivePersistence = L.fromManaged(Persistence)(
       from: number,
       size: number
     ) => T.Effect<
-      unknown,
+      Has<ShardContext>,
       never,
       Chunk.Chunk<{
         persistenceId: string
         shard: number
+        shardSequence: number
         event: unknown
-        sequence: number
+        eventSequence: number
       }>
     > = (persistenceId, from, size) =>
       pipe(
-        cli.query(
-          `SELECT * FROM "event_journal" WHERE "persistence_id" = '${persistenceId}' AND "sequence" > $1::integer ORDER BY "sequence" ASC LIMIT $2::integer`,
-          [from, size]
+        computeShardForId(persistenceId),
+        T.chain((shard) =>
+          cli.query(
+            `SELECT * FROM "event_journal" WHERE "persistence_id" = '${persistenceId}' AND "event_sequence" > $1::integer ANS "shard" = $3::integer ORDER BY "event_sequence" ASC LIMIT $2::integer`,
+            [from, size, shard]
+          )
         ),
         T.map((res) =>
           pipe(
@@ -138,8 +172,9 @@ export const LivePersistence = L.fromManaged(Persistence)(
             Chunk.map((row) => ({
               persistenceId: row.actor_name,
               shard: row.shard,
+              shardSequence: row.shard_sequence,
               event: row["event"],
-              sequence: row.sequence
+              eventSequence: row.event_sequence
             }))
           )
         )
@@ -149,7 +184,11 @@ export const LivePersistence = L.fromManaged(Persistence)(
       persistenceId: string,
       value: unknown,
       event_sequence: number
-    ) => T.Effect<unknown, never, void> = (persistenceId, value, event_sequence) =>
+    ) => T.Effect<Has<ShardContext>, never, void> = (
+      persistenceId,
+      value,
+      event_sequence
+    ) =>
       pipe(
         computeShardForId(persistenceId),
         T.chain((shard) =>
@@ -161,28 +200,58 @@ export const LivePersistence = L.fromManaged(Persistence)(
         T.asUnit
       )
 
-    const emit: (
-      persistenceId: string,
-      value: unknown,
-      event_sequence: number
-    ) => T.Effect<unknown, never, void> = (persistenceId, value, event_sequence) =>
+    const sequenceForShard = (persistenceId: string) =>
       pipe(
         computeShardForId(persistenceId),
         T.chain((shard) =>
-          cli.query(
-            `INSERT INTO "event_journal" ("persistence_id", "shard", "event", "sequence") VALUES('${persistenceId}', $2::integer, $1::jsonb, $3::integer)`,
-            [JSON.stringify(value), shard, event_sequence]
+          T.accessServiceM(ShardContext)((_) =>
+            cli.query(
+              `SELECT * FROM "shard_journal" WHERE "domain" = $1::text AND "shard" = $2::integer FOR UPDATE`,
+              [_.domain, shard]
+            )
           )
         ),
-        T.asUnit
+        T.map((r) => r.rows[0]["sequence"] as number)
       )
+
+    const emit: (
+      persistenceId: string,
+      events: Chunk.Chunk<{ value: unknown; eventSequence: number }>
+    ) => T.Effect<Has<ShardContext>, never, void> = (persistenceId, events) =>
+      events.length > 0
+        ? T.accessServiceM(ShardContext)(({ domain }) =>
+            pipe(
+              T.zip_(computeShardForId(persistenceId), sequenceForShard(persistenceId)),
+              T.chain(({ tuple: [shard, shard_sequence] }) =>
+                pipe(
+                  T.forEach_(
+                    Chunk.zipWithIndexOffset_(events, shard_sequence + 1),
+                    ({ tuple: [{ eventSequence, value }, shard_sequence_i] }) =>
+                      cli.query(
+                        `INSERT INTO "event_journal" ("persistence_id", "shard", "event", "event_sequence", "shard_sequence") VALUES('${persistenceId}', $2::integer, $1::jsonb, $3::integer, $4::integer)`,
+                        [JSON.stringify(value), shard, eventSequence, shard_sequence_i]
+                      )
+                  ),
+                  T.chain(() =>
+                    cli.query(
+                      `UPDATE "shard_journal" SET "sequence" = $3::integer WHERE "domain" = $1::text AND "shard" = $2::integer`,
+                      [domain, shard, shard_sequence + events.length]
+                    )
+                  )
+                )
+              ),
+              T.asUnit
+            )
+          )
+        : T.unit
 
     return identity<Persistence>({
       transaction,
       get,
       set,
       emit,
-      events
+      events,
+      setup
     })
   })
 )

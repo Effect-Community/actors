@@ -14,12 +14,15 @@ import { tag } from "@effect-ts/core/Has"
 import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
+import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
+import { LivePersistence } from "../src/Persistence"
 import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
 import * as Singleton from "../src/Singleton"
+import { TestPG } from "./pg"
 import { TestKeeperConfig } from "./zookeeper"
 
 const Remoting = RemotingExpress["<<<"](
@@ -29,6 +32,7 @@ const Remoting = RemotingExpress["<<<"](
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
   [">>>"](Remoting[">+>"](Cluster.LiveCluster))
   ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
+  ["<+<"](LivePersistence["<+<"](PG.LivePG["<<<"](TestPG)))
 
 const unit = S.unknown["|>"](S.brand<void>())
 

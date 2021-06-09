@@ -18,8 +18,10 @@ import type * as SCH from "@effect-ts/schema"
 import * as S from "@effect-ts/schema"
 import * as Encoder from "@effect-ts/schema/Encoder"
 import * as Parser from "@effect-ts/schema/Parser"
+import type { Tuple } from "@effect-ts/system/Collections/Immutable/Tuple"
 
 import { Persistence } from "../Persistence"
+import type { ShardContext } from "../Shards"
 
 export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
   messages: AM.MessageRegistry<F1>,
@@ -73,7 +75,7 @@ export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
 }
 
 export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractStateful<
-  R & Has<Persistence>,
+  R & Has<ShardContext> & Has<Persistence>,
   S,
   F1
 > {
@@ -144,7 +146,10 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     })
   }
 
-  readonly emitEvent = (event: Ev, actorName: string, sequence: number) => {
+  readonly emitEvents = (
+    actorName: string,
+    events: Chunk.Chunk<Tuple<[Ev, number]>>
+  ) => {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
 
@@ -152,7 +157,15 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
       const { emit } = yield* _(Persistence)
       const encode = yield* _(self.encodeEvent)
 
-      yield* _(emit(actorName, encode({ event }), sequence))
+      yield* _(
+        emit(
+          actorName,
+          Chunk.map_(events, ({ tuple: [event, sequence] }) => ({
+            value: encode({ event }),
+            eventSequence: sequence
+          }))
+        )
+      )
     })
   }
 
@@ -163,7 +176,9 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     context: AS.Context<F1>,
     optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>,
     mailboxSize: number = this.defaultMailboxSize
-  ): (initial: S) => T.RIO<R & T.DefaultEnv & Has<Persistence>, Actor<F1>> {
+  ): (
+    initial: S
+  ) => T.RIO<R & Has<ShardContext> & T.DefaultEnv & Has<Persistence>, Actor<F1>> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
 
@@ -204,9 +219,9 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
                       T.chain(({ tuple: [evs, s] }) =>
                         T.zip_(
                           self.setState(s, actorName, _.s[1] + evs.length),
-                          T.forEach_(
-                            Chunk.zipWithIndexOffset_(evs, _.s[1] + 1),
-                            ({ tuple: [ev, seq] }) => self.emitEvent(ev, actorName, seq)
+                          self.emitEvents(
+                            actorName,
+                            Chunk.zipWithIndexOffset_(evs, _.s[1] + 1)
                           )
                         )
                       ),
