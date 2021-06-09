@@ -209,7 +209,7 @@ describe("Distributed", () => {
                   sequence: 0
                 })
             ),
-            eventStream(UserEvents),
+            eventStream(UserEvents, { delay: 100, perPage: 25 }),
             ST.take(2),
             ST.runCollect
           )

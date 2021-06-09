@@ -66,7 +66,11 @@ export interface Persistence {
   readonly setup: T.Effect<Has<ShardContext>, never, void>
 
   readonly eventStream: <S>(
-    messages: S.Standard<S, unknown>
+    messages: S.Standard<S, unknown>,
+    opts?: {
+      delay?: number
+      perPage?: number
+    }
   ) => (
     offsets: Chunk.Chunk<Offset>
   ) => ST.Stream<T.DefaultEnv, Throwable, Event<Offset, S>>
@@ -131,7 +135,13 @@ export const LivePersistence = L.fromManaged(Persistence)(
     )
 
     const eventStream =
-      <S>(messages: S.Standard<S>, delay?: number) =>
+      <S>(
+        messages: S.Standard<S>,
+        opts?: {
+          delay?: number
+          perPage?: number
+        }
+      ) =>
       (offsets: Chunk.Chunk<Offset>) =>
         T.gen(function* (_) {
           const parse = P.for(messages)["|>"](S.condemnFail)
@@ -158,15 +168,15 @@ export const LivePersistence = L.fromManaged(Persistence)(
           > = pipe(
             T.zip_(
               REF.get(currentRef),
-              REF.getAndUpdate_(delayRef, () => delay ?? 1_000)
+              REF.getAndUpdate_(delayRef, () => opts?.delay ?? 1_000)
             ),
             T.tap(({ tuple: [_co, delay] }) => (delay > 0 ? T.sleep(delay) : T.unit)),
             T.chain(({ tuple: [co, _delay] }) =>
               T.forEachPar_(HM.values(co), (o) =>
                 pipe(
                   cli.query(
-                    `SELECT * FROM "event_journal" WHERE "domain" = $1::text AND "shard" = $2::integer AND "shard_sequence" > $3::integer ORDER BY "shard_sequence" ASC LIMIT 25`,
-                    [o.domain, o.shard, o.sequence]
+                    `SELECT * FROM "event_journal" WHERE "domain" = $1::text AND "shard" = $2::integer AND "shard_sequence" > $3::integer ORDER BY "shard_sequence" ASC LIMIT $4::integer`,
+                    [o.domain, o.shard, o.sequence, opts?.perPage ?? 25]
                   ),
                   T.map((_) => _.rows),
                   T.tap((_) => {
