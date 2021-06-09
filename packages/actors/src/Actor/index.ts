@@ -9,7 +9,7 @@ import type { HasClock } from "@effect-ts/system/Clock"
 import { tuple } from "@effect-ts/system/Function"
 
 import type * as AS from "../ActorSystem"
-import type { Throwable } from "../common"
+import type { Throwable } from "../Common"
 import type * as EV from "../Envelope"
 import * as AM from "../Message"
 import type * as SUP from "../Supervisor"

@@ -4,6 +4,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
+      "@effect-ts/actors/*": ["packages/actors/src/*"],
+      "@effect-ts/actors": ["packages/actors/src"],
       "@effect-ts/keeper/*": ["packages/keeper/src/*"],
       "@effect-ts/keeper": ["packages/keeper/src"],
       "@effect-ts/pg/*": ["packages/pg/src/*"],

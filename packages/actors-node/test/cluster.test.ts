@@ -1,3 +1,7 @@
+import * as AC from "@effect-ts/actors/Actor"
+import { ActorSystemTag, LiveActorSystem } from "@effect-ts/actors/ActorSystem"
+import * as AM from "@effect-ts/actors/Message"
+import * as SUP from "@effect-ts/actors/Supervisor"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as L from "@effect-ts/core/Effect/Layer"
@@ -10,12 +14,11 @@ import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
 import { matchTag } from "@effect-ts/system/Utils"
 
-import * as AC from "../src/Actor"
-import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
+import {
+  RemotingExpress,
+  StaticRemotingExpressConfig
+} from "../../actors-node/src/Remote"
 import * as Cluster from "../src/Cluster"
-import * as AM from "../src/Message"
-import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
-import * as SUP from "../src/Supervisor"
 import { TestKeeperConfig } from "./zookeeper"
 
 const Remoting = RemotingExpress["<<<"](

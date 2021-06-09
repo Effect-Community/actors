@@ -1,3 +1,9 @@
+import { withSystem } from "@effect-ts/actors/ActorRef"
+import {
+  ActorSystem,
+  ActorSystemTag,
+  RemoteConfig
+} from "@effect-ts/actors/ActorSystem"
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
@@ -11,9 +17,6 @@ import * as S from "@effect-ts/schema"
 import * as Encoder from "@effect-ts/schema/Encoder"
 import * as Parser from "@effect-ts/schema/Parser"
 import * as exp from "express"
-
-import { withSystem } from "../ActorRef"
-import { ActorSystem, ActorSystemTag, RemoteConfig } from "../ActorSystem"
 
 export const CallPayload = S.props({
   _tag: S.prop(S.string),

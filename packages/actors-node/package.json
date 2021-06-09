@@ -1,5 +1,5 @@
 {
-  "name": "@effect-ts/actors",
+  "name": "@effect-ts/actors-node",
   "version": "0.0.0",
   "license": "MIT",
   "repository": "https://github.com/Effect-TS/actors.git",
@@ -24,19 +24,14 @@
   },
   "sideEffects": false,
   "config": {
-    "modules": [
-      "Actor",
-      "ActorRef",
-      "ActorSystem",
-      "Common",
-      "Envelope",
-      "EventSourcedStateful",
-      "Journal",
-      "Message",
-      "Supervisor"
-    ]
+    "modules": []
   },
   "peerDependencies": {
     "@effect-ts/core": "^0.40.0"
+  },
+  "dependencies": {
+    "@effect-ts/keeper": "^0.0.0",
+    "@effect-ts/pg": "^0.0.0",
+    "@effect-ts/actors": "^0.0.0"
   }
 }

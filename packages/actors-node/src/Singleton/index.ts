@@ -1,5 +1,18 @@
 import "isomorphic-fetch"
 
+import * as A from "@effect-ts/actors/Actor"
+import type { ActorRef } from "@effect-ts/actors/ActorRef"
+import { ActorRefRemote } from "@effect-ts/actors/ActorRef"
+import * as AS from "@effect-ts/actors/ActorSystem"
+import type {
+  ActorAlreadyExistsException,
+  ErrorMakingActorException,
+  InvalidActorName,
+  InvalidActorPath,
+  NoSuchActorException
+} from "@effect-ts/actors/Common"
+import type * as AM from "@effect-ts/actors/Message"
+import * as SUP from "@effect-ts/actors/Supervisor"
 import * as T from "@effect-ts/core/Effect"
 import * as M from "@effect-ts/core/Effect/Managed"
 import * as Q from "@effect-ts/core/Effect/Queue"
@@ -10,20 +23,7 @@ import type { Has } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import type * as K from "@effect-ts/keeper"
 
-import * as A from "../Actor"
-import type { ActorRef } from "../ActorRef"
-import { ActorRefRemote } from "../ActorRef"
-import * as AS from "../ActorSystem"
 import { Cluster } from "../Cluster"
-import type {
-  ActorAlreadyExistsException,
-  ErrorMakingActorException,
-  InvalidActorName,
-  InvalidActorPath,
-  NoSuchActorException
-} from "../common"
-import type * as AM from "../Message"
-import * as SUP from "../Supervisor"
 
 export function makeSingleton<R, S, F1 extends AM.AnyMessage>(
   stateful: A.AbstractStateful<R, S, F1>

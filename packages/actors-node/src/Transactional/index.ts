@@ -1,3 +1,10 @@
+import type { PendingMessage } from "@effect-ts/actors/Actor"
+import { AbstractStateful, Actor } from "@effect-ts/actors/Actor"
+import { withSystem } from "@effect-ts/actors/ActorRef"
+import * as AS from "@effect-ts/actors/ActorSystem"
+import type { Throwable } from "@effect-ts/actors/Common"
+import type * as AM from "@effect-ts/actors/Message"
+import type * as SUP from "@effect-ts/actors/Supervisor"
 import { Chunk, pipe } from "@effect-ts/core"
 import * as T from "@effect-ts/core/Effect"
 import { pretty } from "@effect-ts/core/Effect/Cause"
@@ -16,14 +23,6 @@ import * as S from "@effect-ts/schema"
 import * as Encoder from "@effect-ts/schema/Encoder"
 import * as Parser from "@effect-ts/schema/Parser"
 import { identity } from "@effect-ts/system/Function"
-
-import type { PendingMessage } from "../Actor"
-import { AbstractStateful, Actor } from "../Actor"
-import { withSystem } from "../ActorRef"
-import * as AS from "../ActorSystem"
-import type { Throwable } from "../common"
-import type * as AM from "../Message"
-import type * as SUP from "../Supervisor"
 
 export type TransactionalEnvelope<F1 extends AM.AnyMessage> = {
   [Tag in AM.TagsOf<F1>]: {

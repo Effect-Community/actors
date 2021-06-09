@@ -17,7 +17,7 @@ import {
   InvalidActorName,
   InvalidActorPath,
   NoSuchActorException
-} from "../common"
+} from "../Common"
 import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 

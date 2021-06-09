@@ -13,7 +13,7 @@ import type { IsEqualTo } from "@effect-ts/system/Utils"
 
 import * as A from "../Actor"
 import type * as AS from "../ActorSystem"
-import type { Throwable } from "../common"
+import type { Throwable } from "../Common"
 import type { Journal, PersistenceId } from "../Journal"
 import { JournalFactory } from "../Journal"
 import type * as AM from "../Message"

@@ -7,7 +7,7 @@ import * as PARS from "@effect-ts/schema/Parser"
 import * as TH from "@effect-ts/schema/These"
 import { pipe, tuple } from "@effect-ts/system/Function"
 
-import { CommandParserException } from "../common"
+import { CommandParserException } from "../Common"
 
 export const RequestSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")
 export const ResponseSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")

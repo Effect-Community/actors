@@ -1,3 +1,9 @@
+import * as A from "@effect-ts/actors/Actor"
+import type { ActorRef } from "@effect-ts/actors/ActorRef"
+import * as AS from "@effect-ts/actors/ActorSystem"
+import type { Throwable } from "@effect-ts/actors/Common"
+import type * as AM from "@effect-ts/actors/Message"
+import * as SUP from "@effect-ts/actors/Supervisor"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as HashMap from "@effect-ts/core/Collections/Immutable/HashMap"
 import * as T from "@effect-ts/core/Effect"
@@ -12,13 +18,7 @@ import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import { KeeperClient } from "@effect-ts/keeper"
 
-import * as A from "../Actor"
-import type { ActorRef } from "../ActorRef"
-import * as AS from "../ActorSystem"
 import { Cluster } from "../Cluster"
-import type { Throwable } from "../common"
-import type * as AM from "../Message"
-import * as SUP from "../Supervisor"
 import { ShardConfig } from "../Transactional"
 
 export interface Distributed<N extends string, F1 extends AM.AnyMessage> {

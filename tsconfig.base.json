@@ -31,6 +31,8 @@
     "baseUrl": ".",
     "target": "ES2018",
     "paths": {
+      "@effect-ts/actors/*": ["packages/actors/build/*"],
+      "@effect-ts/actors": ["packages/actors/build"],
       "@effect-ts/keeper/*": ["packages/keeper/build/*"],
       "@effect-ts/keeper": ["packages/keeper/build"],
       "@effect-ts/pg/*": ["packages/pg/build/*"],

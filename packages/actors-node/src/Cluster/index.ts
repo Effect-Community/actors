@@ -1,3 +1,8 @@
+import { ActorProxy } from "@effect-ts/actors/Actor"
+import { ActorRefRemote } from "@effect-ts/actors/ActorRef"
+import * as AS from "@effect-ts/actors/ActorSystem"
+import { Message, messages } from "@effect-ts/actors/Message"
+import * as SUP from "@effect-ts/actors/Supervisor"
 import { Tagged } from "@effect-ts/core/Case"
 import * as Chunk from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as SortedSet from "@effect-ts/core/Collections/Immutable/SortedSet"
@@ -17,12 +22,6 @@ import * as K from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
 import * as Guard from "@effect-ts/schema/Guard"
 import * as Th from "@effect-ts/schema/These"
-
-import { ActorProxy } from "../Actor"
-import { ActorRefRemote } from "../ActorRef"
-import * as AS from "../ActorSystem"
-import { Message, messages } from "../Message"
-import * as SUP from "../Supervisor"
 
 export const EO = pipe(OT.monad(T.Monad), (M) => ({
   map: M.map,

@@ -1,31 +1,29 @@
+import { ActorSystemTag, LiveActorSystem } from "@effect-ts/actors/ActorSystem"
+import * as AM from "@effect-ts/actors/Message"
+import * as SUP from "@effect-ts/actors/Supervisor"
 import * as T from "@effect-ts/core/Effect"
+import { pretty } from "@effect-ts/core/Effect/Cause"
 import * as L from "@effect-ts/core/Effect/Layer"
 import * as M from "@effect-ts/core/Effect/Managed"
+import { pipe } from "@effect-ts/core/Function"
 import * as O from "@effect-ts/core/Option"
 import type { _A } from "@effect-ts/core/Utils"
-import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as PG from "@effect-ts/pg"
 import * as S from "@effect-ts/schema"
 import { tag } from "@effect-ts/system/Has"
 import { matchTag_ } from "@effect-ts/system/Utils"
 
-import { ActorSystemTag, LiveActorSystem } from "../src/ActorSystem"
 import * as Cluster from "../src/Cluster"
 import * as D from "../src/Distributed"
-import * as AM from "../src/Message"
 import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
-import * as SUP from "../src/Supervisor"
 import { LiveStateStorageAdapter, transactional } from "../src/Transactional"
-import { TestPG } from "./pg"
-import { TestKeeperConfig } from "./zookeeper"
-
-const Remoting = RemotingExpress["<<<"](
-  StaticRemotingExpressConfig({ host: "127.0.0.1", port: 34322 })
-)
+import { TestPG } from "../test/pg"
+import { TestKeeperConfig } from "../test/zookeeper"
 
 const AppLayer = LiveActorSystem("EffectTsActorsDemo")
-  [">+>"](Remoting)
+  [">+>"](RemotingExpress)
+  ["<<<"](StaticRemotingExpressConfig({ host: "127.0.0.1", port: 34322 }))
   [">+>"](Cluster.LiveCluster)
   ["<+<"](Z.LiveKeeperClient["<<<"](TestKeeperConfig))
   ["<+<"](LiveStateStorageAdapter["<+<"](PG.LivePG["<<<"](TestPG)))
@@ -103,7 +101,8 @@ export const makeUsersService = M.gen(function* (_) {
       "users",
       SUP.none,
       D.distributed(userHandler, ({ id }) => id, {
-        passivateAfter: 1_000
+        passivateAfter: 1_000,
+        shards: 3
       }),
       () => new Initial({})
     )
@@ -118,49 +117,25 @@ export interface UsersService extends _A<typeof makeUsersService> {}
 export const UsersService = tag<UsersService>()
 export const LiveUsersService = L.fromManaged(UsersService)(makeUsersService)
 
-describe("Distributed", () => {
-  const { it } = J.runtime((Env) => Env[">+>"](AppLayer)[">+>"](LiveUsersService))
+const program = T.gen(function* (_) {
+  const { users } = yield* _(UsersService)
+  console.log(yield* _(users.ask(new Get({ id: "mike" }))))
+  console.log(yield* _(users.ask(new Create({ id: "mike" }))))
+  console.log(yield* _(users.ask(new Get({ id: "mike" }))))
+  console.log(yield* _(users.ask(new Get({ id: "mike-2" }))))
+  console.log(yield* _(users.ask(new Create({ id: "mike" }))))
+  console.log((yield* _(PG.query("SELECT * FROM state_journal"))).rows)
+  console.log((yield* _(PG.query("SELECT * FROM event_journal"))).rows)
 
-  it("distributed", () =>
-    T.gen(function* (_) {
-      const { users } = yield* _(UsersService)
-      expect(yield* _(users.ask(new Get({ id: "mike" })))).equals(new UserNotFound({}))
-      expect(yield* _(users.ask(new Create({ id: "mike" })))).equals(
-        new User({ id: "mike" })
-      )
-      expect(yield* _(users.ask(new Get({ id: "mike" })))).equals(
-        new User({ id: "mike" })
-      )
-      expect(yield* _(users.ask(new Get({ id: "mike-2" })))).equals(
-        new UserNotFound({})
-      )
-      expect((yield* _(PG.query("SELECT * FROM state_journal"))).rows).toEqual([
-        {
-          persistence_id: "EffectTsActorsDemo(/users/mike)",
-          state: { current: { _tag: "User", id: "mike" } },
-          shard: 7,
-          event_sequence: 2
-        },
-        {
-          persistence_id: "EffectTsActorsDemo(/users/mike-2)",
-          state: { current: { _tag: "Initial" } },
-          shard: 8,
-          event_sequence: 0
-        }
-      ])
-      expect((yield* _(PG.query("SELECT * FROM event_journal"))).rows).toEqual([
-        {
-          persistence_id: "EffectTsActorsDemo(/users/mike)",
-          shard: 7,
-          sequence: 1,
-          event: { event: "create-user" }
-        },
-        {
-          persistence_id: "EffectTsActorsDemo(/users/mike)",
-          shard: 7,
-          sequence: 2,
-          event: { event: "setup-user" }
-        }
-      ])
-    }))
+  yield* _(T.sleep(2_000))
+})
+
+pipe(
+  program,
+  T.provideSomeLayer(AppLayer[">+>"](LiveUsersService)),
+  T.runPromiseExit
+).then((ex) => {
+  if (ex._tag === "Failure") {
+    console.error(pretty(ex.cause))
+  }
 })

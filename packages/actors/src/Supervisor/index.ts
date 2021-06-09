@@ -3,7 +3,7 @@ import * as T from "@effect-ts/core/Effect"
 import type { HasClock } from "@effect-ts/core/Effect/Clock"
 import * as SCH from "@effect-ts/core/Effect/Schedule"
 
-import type * as C from "../common"
+import type * as C from "../Common"
 
 export class Supervisor<R> {
   readonly [_R]: (r: R) => void

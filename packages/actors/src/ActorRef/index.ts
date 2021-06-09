@@ -8,7 +8,7 @@ import { pipe } from "@effect-ts/system/Function"
 
 import type * as A from "../Actor"
 import { ActorSystem, resolvePath } from "../ActorSystem"
-import type { Throwable } from "../common"
+import type { Throwable } from "../Common"
 import * as Envelope from "../Envelope"
 import * as AM from "../Message"
 

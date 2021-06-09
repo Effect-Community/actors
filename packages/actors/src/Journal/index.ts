@@ -9,7 +9,7 @@ import { tag } from "@effect-ts/core/Has"
 import * as O from "@effect-ts/core/Option"
 import type * as SCH from "@effect-ts/schema"
 
-import type { Throwable } from "../common"
+import type { Throwable } from "../Common"
 
 export class PersistenceId extends C.Case<{ id: string }> {}
 
