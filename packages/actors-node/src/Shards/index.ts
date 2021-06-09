@@ -13,5 +13,5 @@ const mod = (m: number) => (x: number) => x < 0 ? (x % m) + m : x % m
 
 export const computeShardForId = (id: string) =>
   T.accessService(ShardContext)(({ domain, shards }) => {
-    return mod(shards)(hash(`${domain}-${id}`))
+    return mod(shards)(hash(`${domain}-${id}`)) + 1
   })

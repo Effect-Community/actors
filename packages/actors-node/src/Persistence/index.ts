@@ -95,16 +95,51 @@ export const LivePersistence = L.fromManaged(Persistence)(
       );`)
     )
 
-    const setup: T.Effect<Has<ShardContext>, never, void> = pipe(
-      T.accessServiceM(ShardContext)((_) =>
-        T.forEach_(Chunk.range(1, _.shards), (i) =>
+    yield* _(
+      cli.query(`
+      CREATE TABLE IF NOT EXISTS "domain_journal" (
+        domain          text PRIMARY KEY,
+        shards          integer
+      );`)
+    )
+
+    const setup: T.Effect<Has<ShardContext>, never, void> = cli.transaction(
+      T.gen(function* (_) {
+        const { domain, shards } = yield* _(ShardContext)
+
+        const { rows } = yield* _(
+          cli.query(`SELECT * FROM "domain_journal" WHERE "domain" = $1::text`, [
+            domain
+          ])
+        )
+
+        if (rows.length > 0) {
+          const current = rows[0]["shards"] as number
+
+          if (current !== shards) {
+            // TODO(mike): proper error
+            return yield* _(T.die(new Error("sharding cannot be changed")))
+          }
+
+          return
+        }
+
+        yield* _(
           cli.query(
-            `INSERT INTO "shard_journal" ("domain", "shard", "sequence") VALUES($1::text, $2::integer, 0) ON CONFLICT ("domain","shard") DO NOTHING`,
-            [_.domain, i]
+            `INSERT INTO "domain_journal" ("domain", "shards") VALUES($1::text, $2::integer)`,
+            [domain, shards]
           )
         )
-      ),
-      T.asUnit
+
+        yield* _(
+          T.forEach_(Chunk.range(1, shards), (i) =>
+            cli.query(
+              `INSERT INTO "shard_journal" ("domain", "shard", "sequence") VALUES($1::text, $2::integer, 0) ON CONFLICT ("domain","shard") DO NOTHING`,
+              [domain, i]
+            )
+          )
+        )
+      })
     )
 
     const transaction: (

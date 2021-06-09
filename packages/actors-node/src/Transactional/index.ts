@@ -185,7 +185,8 @@ export class Transactional<R, S, Ev, F1 extends AM.AnyMessage> extends AbstractS
     const process = (msg: PendingMessage<F1>, initial: S) => {
       return T.accessServicesM({ prov: Persistence })(({ prov }) =>
         pipe(
-          AS.resolvePath(context.address)["|>"](T.orDie),
+          prov.setup,
+          T.chain(() => AS.resolvePath(context.address)["|>"](T.orDie)),
           T.map(([sysName, __, ___, actorName]) => `${sysName}(${actorName})`),
           T.chain((actorName) =>
             prov.transaction(actorName)(

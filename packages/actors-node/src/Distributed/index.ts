@@ -20,7 +20,6 @@ import * as O from "@effect-ts/core/Option"
 import { KeeperClient } from "@effect-ts/keeper"
 
 import { Cluster } from "../Cluster"
-import { Persistence } from "../Persistence"
 import { ShardContext } from "../Shards"
 
 export interface Distributed<N extends string, F1 extends AM.AnyMessage> {
@@ -283,9 +282,6 @@ export const distributed = <R, S, F1 extends AM.AnyMessage>(
             M.gen(function* (_) {
               const cluster = yield* _(Cluster)
               const cli = yield* _(KeeperClient)
-              const pers = yield* _(Persistence)
-
-              yield* _(pers.setup)
 
               const leadersRef = yield* _(
                 REF.makeRef(

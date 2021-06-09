@@ -136,13 +136,13 @@ describe("Distributed", () => {
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
           state: { current: { _tag: "User", id: "mike" } },
-          shard: 2,
+          shard: 3,
           event_sequence: 2
         },
         {
           persistence_id: "EffectTsActorsDemo(/users/mike-2)",
           state: { current: { _tag: "Initial" } },
-          shard: 13,
+          shard: 14,
           event_sequence: 0
         }
       ])
@@ -150,14 +150,14 @@ describe("Distributed", () => {
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
           shard_sequence: 1,
-          shard: 2,
+          shard: 3,
           event_sequence: 1,
           event: { event: "create-user" }
         },
         {
           persistence_id: "EffectTsActorsDemo(/users/mike)",
           shard_sequence: 2,
-          shard: 2,
+          shard: 3,
           event_sequence: 2,
           event: { event: "setup-user" }
         }
@@ -168,8 +168,8 @@ describe("Distributed", () => {
         )).rows
       ).toEqual([
         { domain: "EffectTsActorsDemo(users)", shard: 1, sequence: 0 },
-        { domain: "EffectTsActorsDemo(users)", shard: 2, sequence: 2 },
-        { domain: "EffectTsActorsDemo(users)", shard: 3, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 2, sequence: 0 },
+        { domain: "EffectTsActorsDemo(users)", shard: 3, sequence: 2 },
         { domain: "EffectTsActorsDemo(users)", shard: 4, sequence: 0 },
         { domain: "EffectTsActorsDemo(users)", shard: 5, sequence: 0 },
         { domain: "EffectTsActorsDemo(users)", shard: 6, sequence: 0 },
@@ -184,5 +184,8 @@ describe("Distributed", () => {
         { domain: "EffectTsActorsDemo(users)", shard: 15, sequence: 0 },
         { domain: "EffectTsActorsDemo(users)", shard: 16, sequence: 0 }
       ])
+      expect(
+        (yield* _(PG.query("SELECT * FROM domain_journal ORDER BY domain ASC"))).rows
+      ).toEqual([{ domain: "EffectTsActorsDemo(users)", shards: 16 }])
     }))
 })

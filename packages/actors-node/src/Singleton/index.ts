@@ -24,13 +24,12 @@ import * as O from "@effect-ts/core/Option"
 import type * as K from "@effect-ts/keeper"
 
 import { Cluster } from "../Cluster"
-import { Persistence } from "../Persistence"
 import { ShardContext } from "../Shards"
 
 export function makeSingleton<R, S, F1 extends AM.AnyMessage>(
   stateful: A.AbstractStateful<R & Has<ShardContext>, S, F1>
 ): A.ActorProxy<
-  Has<Cluster> & Has<Persistence> & T.DefaultEnv & R,
+  Has<Cluster> & T.DefaultEnv & R,
   S,
   F1,
   | K.ZooError
@@ -44,7 +43,7 @@ export function makeSingleton<R, S, F1 extends AM.AnyMessage, R3, E3>(
   stateful: A.AbstractStateful<R & Has<ShardContext>, S, F1>,
   side: (self: ActorRef<F1>) => T.Effect<R3, E3, never>
 ): A.ActorProxy<
-  Has<Cluster> & Has<Persistence> & T.DefaultEnv & R & R3,
+  Has<Cluster> & T.DefaultEnv & R & R3,
   S,
   F1,
   | E3
@@ -59,7 +58,7 @@ export function makeSingleton<R, S, F1 extends AM.AnyMessage, R3, E3>(
   stateful: A.AbstractStateful<R & Has<ShardContext>, S, F1>,
   side?: (self: ActorRef<F1>) => T.Effect<R3, E3, never>
 ): A.ActorProxy<
-  Has<Cluster> & Has<Persistence> & T.DefaultEnv & R & R3,
+  Has<Cluster> & T.DefaultEnv & R & R3,
   S,
   F1,
   | E3
@@ -86,10 +85,6 @@ export function makeSingleton<R, S, F1 extends AM.AnyMessage, R3, E3>(
                   T.map(([_, __, ___, actorName]) => actorName.substr(1))
                 )
               )
-
-              const pers = yield* _(Persistence)
-
-              yield* _(pers.setup)
 
               const election = `singleton-${name}`
 
