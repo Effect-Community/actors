@@ -46,7 +46,7 @@ export function actorRef<F1 extends AM.AnyMessage>() {
       (_): _ is ActorRef<F1> =>
         _ instanceof ActorRefLocal || _ instanceof ActorRefRemote
     ),
-    S.encoder((s) => s.path),
+    S.encoder((s) => s.address),
     S.parser((u): Th.These<S.LeafE<ActorRefParserE>, ActorRef<F1>> => {
       if (globSys instanceof ActorSystem) {
         const s = S.string.Parser(u)
@@ -94,6 +94,12 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
   readonly path: T.Effect<T.DefaultEnv, never, string>
 
   /**
+   * Get referential absolute actor path
+   * @return
+   */
+  readonly address: string
+
+  /**
    * Stops actor and all its children
    */
   readonly stop: T.Effect<T.DefaultEnv, Throwable, Chunk.Chunk<void>>
@@ -102,7 +108,7 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
 export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   readonly _F1!: F1
 
-  constructor(private readonly address: string, private readonly actor: A.Actor<F1>) {}
+  constructor(readonly address: string, private readonly actor: A.Actor<F1>) {}
 
   ask<A extends F1>(msg: A) {
     return this.actor.ask(msg)
@@ -118,7 +124,7 @@ export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
 export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   readonly _F1!: F1
 
-  constructor(private readonly address: string, private readonly system: ActorSystem) {}
+  constructor(readonly address: string, private readonly system: ActorSystem) {}
 
   private runEnvelope(envelope: Envelope.Envelope) {
     const envOp = envelope.command
@@ -150,7 +156,7 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
             })
           }).then((r) => r.json())
         )
-          ["|>"](T.timeout(15_000))
+          ["|>"](T.timeout(1_000))
           ["|>"](T.chain(T.getOrFail))
       )
 
