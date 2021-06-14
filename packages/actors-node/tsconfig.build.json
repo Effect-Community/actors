@@ -9,10 +9,10 @@
     "removeComments": false,
     "plugins": [
       {
-        "transform": "@effect-ts/tracing-plugin"
-        //"moduleMap": {
-        //  "^src/(.*)": "(@effect-ts/actors-node): _src/$1"
-        //}
+        "transform": "@effect-ts/tracing-plugin",
+        "moduleMap": {
+          "^src/(.*)": "(@effect-ts/actors-node): _src/$1"
+        }
       }
     ]
   },

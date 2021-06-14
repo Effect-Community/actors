@@ -91,12 +91,6 @@ export interface ActorRef<F1 extends AM.AnyMessage> {
    * Get referential absolute actor path
    * @return
    */
-  readonly path: T.Effect<T.DefaultEnv, never, string>
-
-  /**
-   * Get referential absolute actor path
-   * @return
-   */
   readonly address: string
 
   /**
@@ -118,7 +112,6 @@ export class ActorRefLocal<F1 extends AM.AnyMessage> implements ActorRef<F1> {
   }
 
   readonly stop = this.actor.stop
-  readonly path = T.succeed(this.address)
 }
 
 export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
@@ -195,6 +188,4 @@ export class ActorRefRemote<F1 extends AM.AnyMessage> implements ActorRef<F1> {
       command: Envelope.stop(),
       recipient: this.address
     })
-
-  readonly path: T.UIO<string> = T.succeed(this.address)
 }

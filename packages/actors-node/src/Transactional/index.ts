@@ -56,7 +56,7 @@ export function transactional<S, F1 extends AM.AnyMessage, Ev = never>(
                 (
                   _: AM.ExtractTagged<F1, Tag>
                 ) => T.Effect<
-                  infer R,
+                  infer R & T.DefaultEnv,
                   Throwable,
                   AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
                 >
