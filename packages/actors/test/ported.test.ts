@@ -22,7 +22,7 @@ class Increase extends AM.Message("Increase", S.props({}), unit) {}
 class Get extends AM.Message("Get", S.props({}), S.number) {}
 class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
-const Message = AM.messages(Reset, Increase, Get, GetAndReset)
+const Message = AM.messages({ Reset, Increase, Get, GetAndReset })
 type Message = AM.TypeOf<typeof Message>
 
 const handler = AC.stateful(
@@ -173,7 +173,7 @@ describe("Actor", () => {
 
   it("error recovery by retrying", () => {
     class Tick extends AM.Message("Tick", S.props({}), unit) {}
-    const TickMessage = AM.messages(Tick)
+    const TickMessage = AM.messages({ Tick })
 
     const tickHandler = (ref: REF.Ref<number>) =>
       AC.stateful(

@@ -1,16 +1,8 @@
-import * as D from "@effect-ts/core/Collections/Immutable/Dictionary"
-import * as T from "@effect-ts/core/Effect"
 import type { IsEqualTo } from "@effect-ts/core/Utils"
-import * as S from "@effect-ts/schema"
-import * as ENC from "@effect-ts/schema/Encoder"
-import * as PARS from "@effect-ts/schema/Parser"
-import * as TH from "@effect-ts/schema/These"
-import { pipe, tuple } from "@effect-ts/system/Function"
-
-import { CommandParserException } from "../Common"
+import type * as S from "@effect-ts/schema"
 
 export const RequestSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")
-export const ResponseSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")
+export const ResponseSchemaSymbol = Symbol("@effect-ts/actors/ResponseSchema")
 export const _Response = Symbol("@effect-ts/actors/PhantomResponse")
 
 export interface Message<
@@ -106,44 +98,11 @@ export function Message<
   }
 }
 
-export function messages<Messages extends AnyMessageFactory[]>(
-  ...messages: Messages
-): MessageRegistry<InstanceOf<Messages[number]>> {
-  return messages.reduce(
+export function messages<Messages extends AnyMessageFactory>(
+  messages: Record<string, Messages>
+): MessageRegistry<InstanceOf<Messages>> {
+  return Object.values(messages).reduce(
     (obj, entry) => ({ ...obj, [entry.Tag]: entry }),
     {} as MessageRegistry<any>
   )
-}
-
-export function decodeCommand<F1 extends AnyMessage>(
-  registry: MessageRegistry<F1>
-): (
-  msg: unknown
-) => T.Effect<
-  unknown,
-  CommandParserException,
-  readonly [F1, (response: ResponseOf<F1>) => unknown]
-> {
-  const parser = pipe(
-    registry,
-    D.map((entry) =>
-      S.intersect_(entry.RequestSchema, S.props({ _tag: S.prop(S.literal(entry.Tag)) }))
-    ),
-    S.union,
-    PARS.for
-  )
-
-  return (msg) =>
-    pipe(
-      parser(msg),
-      TH.result,
-      (e) => T.fromEither(() => e),
-      T.map((t) =>
-        tuple(
-          new registry[t.get(0)._tag](t.get(0)),
-          ENC.for(registry[t.get(0)._tag].ResponseSchema)
-        )
-      ),
-      T.mapError((e) => new CommandParserException(e))
-    )
 }

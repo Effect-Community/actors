@@ -36,7 +36,7 @@ class Increase extends AM.Message("Increase", S.props({}), unit) {}
 class Get extends AM.Message("Get", S.props({}), S.number) {}
 class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
-const Message = AM.messages(Reset, Increase, Get, GetAndReset)
+const Message = AM.messages({ Reset, Increase, Get, GetAndReset })
 type Message = AM.TypeOf<typeof Message>
 
 const statefulHandler = AC.stateful(
@@ -89,7 +89,7 @@ describe("Cluster", () => {
       const { actor } = yield* _(ProcessService)
       const system = yield* _(ActorSystemTag)
 
-      const path = yield* _(actor.path)
+      const path = actor.address
 
       expect(path).equals("zio://EffectTsActorsDemo@127.0.0.1:34322/process-a")
 

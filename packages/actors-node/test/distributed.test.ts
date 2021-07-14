@@ -61,7 +61,7 @@ class Create extends AM.Message(
   S.union({ User, UserAlreadyCreated })
 ) {}
 
-const Message = AM.messages(Get, Create)
+const Message = AM.messages({ Get, Create })
 type Message = AM.TypeOf<typeof Message>
 
 @S.stable
