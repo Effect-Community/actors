@@ -15,7 +15,6 @@ import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
-import { matchTag } from "@effect-ts/system/Utils"
 
 import * as Cluster from "../src/Cluster"
 import { RemotingExpress, StaticRemotingExpressConfig } from "../src/Remote"
@@ -44,7 +43,7 @@ class GetMessages extends AM.Message(
   S.props({ messages: S.prop(S.chunk(S.string)) })
 ) {}
 
-const SubscriberMessages = AM.messages(SendMessage, GetMessages)
+const SubscriberMessages = AM.messages({ SendMessage, GetMessages })
 type SubscriberMessages = AM.TypeOf<typeof SubscriberMessages>
 
 class Subscribe extends AM.Message(
@@ -59,43 +58,54 @@ class Publish extends AM.Message(
   unit
 ) {}
 
-const HubMessages = AM.messages(Subscribe, Publish)
+const HubMessages = AM.messages({ Subscribe, Publish })
 
 const handlerHub = AC.stateful(
   HubMessages,
   S.props({
     subscribed: S.prop(S.chunk(actorRef<SubscriberMessages>()))
   })
-)((s) =>
-  matchTag({
-    Subscribe: ({ payload: { recipient } }, msg) =>
-      T.gen(function* (_) {
-        yield* _(recipient.ask(new SendMessage({ message: "it works" })))
-        return yield* _(
-          msg.return({ subscribed: Chunk.append_(s.subscribed, recipient) })
-        )
-      }),
-    Publish: ({ payload: { message } }, msg) =>
-      T.gen(function* (_) {
-        yield* _(
-          T.forEach_(s.subscribed, (recipient) =>
-            recipient.ask(new SendMessage({ message }))
+)(({ state }) => ({
+  Subscribe: ({ recipient }) =>
+    T.gen(function* (_) {
+      yield* _(recipient.ask(new SendMessage({ message: "it works" })))
+      return yield* _(
+        pipe(
+          state.get,
+          T.chain((s) =>
+            state.set({ subscribed: Chunk.append_(s.subscribed, recipient) })
           )
         )
-        return yield* _(msg.return(s))
-      })
-  })
-)
+      )
+    }),
+  Publish: ({ message }) =>
+    T.gen(function* (_) {
+      const s = yield* _(state.get)
+      yield* _(
+        T.forEach_(s.subscribed, (recipient) =>
+          recipient.ask(new SendMessage({ message }))
+        )
+      )
+      return yield* _(state.set(s))
+    })
+}))
 
 const handlerSub = AC.stateful(
   SubscriberMessages,
   S.chunk(S.string)
-)((s) =>
-  matchTag({
-    SendMessage: (_) => _.return(Chunk.append_(s, _.payload.message)),
-    GetMessages: (_) => _.return(s, { messages: s })
-  })
-)
+)(({ state }) => ({
+  SendMessage: (_) =>
+    pipe(
+      state.get,
+      T.map((s) => Chunk.append_(s, _.message)),
+      T.chain(state.set)
+    ),
+  GetMessages: (_) =>
+    pipe(
+      state.get,
+      T.map((messages) => ({ messages }))
+    )
+}))
 
 export const makeProcessService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)

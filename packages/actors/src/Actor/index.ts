@@ -1,4 +1,4 @@
-import { pipe as Act } from "@effect-ts/core"
+import { pipe } from "@effect-ts/core"
 import * as CH from "@effect-ts/core/Collections/Immutable/Chunk"
 import * as T from "@effect-ts/core/Effect"
 import * as P from "@effect-ts/core/Effect/Promise"
@@ -11,8 +11,7 @@ import { tuple } from "@effect-ts/system/Function"
 
 import type * as AS from "../ActorSystem"
 import type { Throwable } from "../Common"
-import type * as EV from "../Envelope"
-import * as AM from "../Message"
+import type * as AM from "../Message"
 import type * as SUP from "../Supervisor"
 
 export type PendingMessage<A extends AM.AnyMessage> = readonly [
@@ -27,23 +26,8 @@ export class Actor<F1 extends AM.AnyMessage> {
     readonly optOutActorSystem: () => T.Effect<T.DefaultEnv, Throwable, void>
   ) {}
 
-  runOp(command: EV.Command) {
-    switch (command._tag) {
-      case "Ask":
-        return T.chain_(AM.decodeCommand(this.messages)(command.msg), ([msg, encode]) =>
-          T.map_(this.ask(msg), encode)
-        )
-      case "Tell":
-        return T.chain_(AM.decodeCommand(this.messages)(command.msg), ([msg]) =>
-          this.tell(msg)
-        )
-      case "Stop":
-        return this.stop
-    }
-  }
-
   ask<A extends F1>(fa: A) {
-    return Act(
+    return pipe(
       P.make<Throwable, AM.ResponseOf<A>>(),
       T.tap((promise) => Q.offer_(this.queue, tuple(fa, promise))),
       T.chain(P.await)
@@ -55,14 +39,14 @@ export class Actor<F1 extends AM.AnyMessage> {
    * so there is no guarantee that it actually gets consumed by the actor.
    */
   tell(fa: F1) {
-    return Act(
+    return pipe(
       P.make<Throwable, any>(),
       T.chain((promise) => Q.offer_(this.queue, tuple(fa, promise))),
       T.zipRight(T.unit)
     )
   }
 
-  readonly stop = Act(
+  readonly stop = pipe(
     Q.takeAll(this.queue),
     T.tap(() => Q.shutdown(this.queue)),
     T.tap(this.optOutActorSystem),
@@ -83,21 +67,6 @@ export abstract class AbstractStateful<R, S, F1 extends AM.AnyMessage> {
     mailboxSize?: number
   ): (initial: S) => T.Effect<R & T.DefaultEnv, Throwable, Actor<F1>>
 }
-
-export type StatefulEnvelope<S, F1 extends AM.AnyMessage> = {
-  [Tag in AM.TagsOf<F1>]: {
-    _tag: Tag
-    payload: AM.RequestOf<AM.ExtractTagged<F1, Tag>>
-    return: (
-      s: S,
-      r: AM.ResponseOf<AM.ExtractTagged<F1, Tag>>
-    ) => T.Effect<unknown, never, StatefulResponse<S, AM.ExtractTagged<F1, Tag>>>
-  }
-}[AM.TagsOf<F1>]
-
-export type StatefulResponse<S, F1 extends AM.AnyMessage> = {
-  [Tag in AM.TagsOf<F1>]: readonly [S, AM.ResponseOf<AM.ExtractTagged<F1, Tag>>]
-}[AM.TagsOf<F1>]
 
 export function stateful<S, F1 extends AM.AnyMessage>(
   messages: AM.MessageRegistry<F1>,
@@ -182,7 +151,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
       msg: PendingMessage<F1>,
       state: REF.Ref<S>
     ): T.RIO<R & HasClock, void> => {
-      return Act(
+      return pipe(
         T.do,
         T.bind("s", () => REF.get(state)),
         T.let("fa", () => msg[0]),
@@ -199,10 +168,10 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
         T.let(
           "completer",
           (_) => (a: AM.ResponseOf<F1>) =>
-            Act(
+            pipe(
               REF.get(_.state),
               T.chain((s) =>
-                Act(
+                pipe(
                   REF.set_(state, s),
                   T.zipRight(P.succeed_(_.promise, a)),
                   T.as(T.unit)
@@ -214,7 +183,7 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
           T.foldM_(
             _.receiver,
             (e) =>
-              Act(
+              pipe(
                 supervisor.supervise(_.receiver, e),
                 T.foldM((__) => P.fail_(_.promise, e), _.completer)
               ),
@@ -225,12 +194,12 @@ export class Stateful<R, S, F1 extends AM.AnyMessage> extends AbstractStateful<
     }
 
     return (initial) =>
-      Act(
+      pipe(
         T.do,
         T.bind("state", () => REF.makeRef(initial)),
         T.bind("queue", () => Q.makeBounded<PendingMessage<F1>>(mailboxSize)),
         T.tap((_) =>
-          Act(
+          pipe(
             Q.take(_.queue),
             T.chain((t) => process(t, _.state)),
             T.forever,
@@ -267,10 +236,10 @@ export class ActorProxy<R, S, F1 extends AM.AnyMessage, E> extends AbstractState
     mailboxSize: number = this.defaultMailboxSize
   ): (initial: S) => T.RIO<R & HasClock, Actor<F1>> {
     return (initial) => {
-      return Act(
+      return pipe(
         T.do,
         T.bind("queue", () => Q.makeBounded<PendingMessage<F1>>(mailboxSize)),
-        T.bind("fiber", (_) => Act(this.process(_.queue, context, initial), T.fork)),
+        T.bind("fiber", (_) => pipe(this.process(_.queue, context, initial), T.fork)),
         T.map((_) => new Actor(this.messages, _.queue, optOutActorSystem))
       )
     }

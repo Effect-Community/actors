@@ -67,7 +67,7 @@ const unit = S.unknown["|>"](S.brand<void>())
 class Increase extends AM.Message("Increase", S.props({}), unit) {}
 class Get extends AM.Message("Get", S.props({}), S.number) {}
 
-const Message = AM.messages(Get, Increase)
+const Message = AM.messages({ Get, Increase })
 type Message = AM.TypeOf<typeof Message>
 
 const statefulHandler = transactional(

@@ -12,7 +12,6 @@ import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
-import { matchTag } from "@effect-ts/system/Utils"
 
 import {
   RemotingExpress,
@@ -36,25 +35,27 @@ class Increase extends AM.Message("Increase", S.props({}), unit) {}
 class Get extends AM.Message("Get", S.props({}), S.number) {}
 class GetAndReset extends AM.Message("GetAndReset", S.props({}), S.number) {}
 
-const Message = AM.messages(Reset, Increase, Get, GetAndReset)
+const Message = AM.messages({ Reset, Increase, Get, GetAndReset })
 type Message = AM.TypeOf<typeof Message>
 
 const statefulHandler = AC.stateful(
   Message,
   S.number
-)((state, ctx) =>
-  matchTag({
-    Reset: (_) => _.return(0),
-    Increase: (_) => _.return(state + 1),
-    Get: (_) => _.return(state, state),
-    GetAndReset: (_) =>
-      pipe(
-        ctx.self,
-        T.chain((self) => self.tell(new Reset())),
-        T.zipRight(_.return(state, state))
-      )
-  })
-)
+)(({ state }, ctx) => ({
+  Reset: (_) => state.set(0),
+  Increase: (_) =>
+    pipe(
+      state.get,
+      T.chain((n) => state.set(n + 1))
+    ),
+  Get: (_) => state.get,
+  GetAndReset: (_) =>
+    pipe(
+      ctx.self,
+      T.chain((self) => self.tell(new Reset())),
+      T.zipRight(state.get)
+    )
+}))
 
 export const makeProcessService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)
@@ -89,7 +90,7 @@ describe("Cluster", () => {
       const { actor } = yield* _(ProcessService)
       const system = yield* _(ActorSystemTag)
 
-      const path = yield* _(actor.path)
+      const path = actor.address
 
       expect(path).equals("zio://EffectTsActorsDemo@127.0.0.1:34322/process-a")
 

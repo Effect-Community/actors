@@ -53,7 +53,7 @@ export class GetShardLocation extends AM.Message(
   S.union({ ShardLocation, NoWorker })
 ) {}
 
-export const Coordinator = AM.messages(Join, GetShardLocation)
+export const Coordinator = AM.messages({ Join, GetShardLocation })
 
 export class Assign extends AM.Message(
   "Assign",
@@ -63,7 +63,7 @@ export class Assign extends AM.Message(
   S.props({})
 ) {}
 
-export const Worker = AM.messages(Assign)
+export const Worker = AM.messages({ Assign })
 
 export function sharded<R, S, F1 extends AM.AnyMessage>(
   stateful: AbstractStateful<R, S, F1>
