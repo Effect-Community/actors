@@ -1,9 +1,9 @@
 import type { IsEqualTo } from "@effect-ts/core/Utils"
 import type * as S from "@effect-ts/schema"
 
-export const RequestSchemaSymbol = Symbol("@effect-ts/actors/RequestSchema")
-export const ResponseSchemaSymbol = Symbol("@effect-ts/actors/ResponseSchema")
-export const _Response = Symbol("@effect-ts/actors/PhantomResponse")
+export const RequestSchemaSymbol = Symbol.for("@effect-ts/actors/RequestSchema")
+export const ResponseSchemaSymbol = Symbol.for("@effect-ts/actors/ResponseSchema")
+export const _Response = Symbol.for("@effect-ts/actors/PhantomResponse")
 
 export interface Message<
   Tag extends string,
@@ -16,12 +16,6 @@ export interface Message<
   readonly [ResponseSchemaSymbol]: Res
   readonly [RequestSchemaSymbol]: Req
 }
-
-export type TypedMessage<
-  Tag extends string,
-  Req extends S.SchemaUPI,
-  Res extends S.SchemaUPI
-> = S.ParsedShapeOf<Req> & Message<Tag, Req, Res>
 
 export type AnyMessage = Message<any, S.SchemaAny, S.SchemaAny>
 
@@ -36,7 +30,7 @@ export type RequestOf<A extends AnyMessage> = [A] extends [Message<any, infer B,
 export type TagsOf<A extends AnyMessage> = A["_tag"]
 export type ExtractTagged<A extends AnyMessage, Tag extends string> = Extract<
   A,
-  TypedMessage<Tag, any, any>
+  Message<Tag, any, any>
 >
 
 type MessageFactoryOf<A extends AnyMessage> = [A] extends [
@@ -44,11 +38,6 @@ type MessageFactoryOf<A extends AnyMessage> = [A] extends [
 ]
   ? MessageFactory<Tag, Req, Res>
   : never
-
-export interface MessageRegistry<F1>
-  extends Record<string, [F1] extends [AnyMessage] ? MessageFactoryOf<F1> : never> {}
-
-export type InstanceOf<A> = [A] extends [{ new (...any: any[]): infer B }] ? B : never
 
 export interface MessageFactory<
   Tag extends string,
@@ -61,7 +50,7 @@ export interface MessageFactory<
 
   new (
     _: IsEqualTo<S.ParsedShapeOf<Req>, {}> extends true ? void : S.ParsedShapeOf<Req>
-  ): TypedMessage<Tag, Req, Res>
+  ): S.ParsedShapeOf<Req> & Message<Tag, Req, Res>
 }
 
 export type AnyMessageFactory = MessageFactory<any, S.SchemaAny, S.SchemaAny>
@@ -98,11 +87,25 @@ export function Message<
   }
 }
 
+export class MessageRegistry<F1 extends AnyMessage> {
+  constructor(
+    readonly index: { [Tag in TagsOf<F1>]: MessageFactoryOf<ExtractTagged<F1, Tag>> },
+    readonly reverse: Record<string, TagsOf<F1>>
+  ) {}
+}
+
 export function messages<Messages extends AnyMessageFactory>(
   messages: Record<string, Messages>
-): MessageRegistry<InstanceOf<Messages>> {
-  return Object.values(messages).reduce(
+): MessageRegistry<InstanceType<Messages>> {
+  const index = Object.values(messages).reduce(
     (obj, entry) => ({ ...obj, [entry.Tag]: entry }),
-    {} as MessageRegistry<any>
+    {} as Record<string, AnyMessageFactory>
   )
+
+  const reverse = Object.keys(messages).reduce(
+    (obj, key) => ({ ...obj, [key]: messages[key].Tag }),
+    {} as Record<string, string>
+  )
+
+  return new MessageRegistry(index as any, reverse)
 }
