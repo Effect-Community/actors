@@ -1,5 +1,9 @@
+import * as CS from "@effect-ts/core/Case"
 import type { IsEqualTo } from "@effect-ts/core/Utils"
 import type * as S from "@effect-ts/schema"
+import { _A, _E } from "@effect-ts/system/Effect"
+
+import type { Throwable } from "../Common"
 
 export const RequestSchemaSymbol = Symbol.for("@effect-ts/actors/RequestSchema")
 export const ResponseSchemaSymbol = Symbol.for("@effect-ts/actors/ResponseSchema")
@@ -67,23 +71,17 @@ export function Message<
   Res extends S.SchemaUPI
 >(Tag: Tag, Req: Req, Res: Res): MessageFactory<Tag, Req, Res> {
   // @ts-expect-error
-  return class {
+  return class extends CS.Tagged(Tag)<S.ParsedShapeOf<Req>> {
     static RequestSchema = Req
     static ResponseSchema = Res
-    static Tag = Tag
-
-    readonly _tag = Tag;
+    static Tag = Tag;
 
     readonly [ResponseSchemaSymbol] = Res;
-    readonly [RequestSchemaSymbol] = Req
+    readonly [RequestSchemaSymbol] = Req;
 
-    constructor(ps?: any) {
-      if (ps) {
-        for (const k of Object.keys(ps)) {
-          Object.defineProperty(this, k, { value: ps[k] })
-        }
-      }
-    }
+    // NOTE(mattiamanzati): This phantom fields allow to use a message as if it were a @effect-ts/query Request<E, A>
+    readonly [_E]: () => Throwable;
+    readonly [_A]: () => S.ParsedShapeOf<Res>
   }
 }
 
