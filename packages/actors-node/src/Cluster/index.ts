@@ -159,7 +159,7 @@ export const makeCluster = M.gen(function* (_) {
       system.make(
         "cluster-manager",
         SUP.none,
-        new ActorProxy(messages(GetMembers, Join, Init, Leave), (queue, context) =>
+        new ActorProxy(messages({ GetMembers, Join, Init, Leave }), (queue, context) =>
           T.gen(function* (_) {
             while (1) {
               const [m, p] = yield* _(Q.take(queue))

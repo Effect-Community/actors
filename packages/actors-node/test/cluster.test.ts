@@ -12,7 +12,6 @@ import type { _A } from "@effect-ts/core/Utils"
 import * as J from "@effect-ts/jest/Test"
 import * as Z from "@effect-ts/keeper"
 import * as S from "@effect-ts/schema"
-import { matchTag } from "@effect-ts/system/Utils"
 
 import {
   RemotingExpress,
@@ -42,19 +41,21 @@ type Message = AM.TypeOf<typeof Message>
 const statefulHandler = AC.stateful(
   Message,
   S.number
-)((state, ctx) =>
-  matchTag({
-    Reset: (_) => _.return(0),
-    Increase: (_) => _.return(state + 1),
-    Get: (_) => _.return(state, state),
-    GetAndReset: (_) =>
-      pipe(
-        ctx.self,
-        T.chain((self) => self.tell(new Reset())),
-        T.zipRight(_.return(state, state))
-      )
-  })
-)
+)(({ state }, ctx) => ({
+  Reset: (_) => state.set(0),
+  Increase: (_) =>
+    pipe(
+      state.get,
+      T.chain((n) => state.set(n + 1))
+    ),
+  Get: (_) => state.get,
+  GetAndReset: (_) =>
+    pipe(
+      ctx.self,
+      T.chain((self) => self.tell(new Reset())),
+      T.zipRight(state.get)
+    )
+}))
 
 export const makeProcessService = M.gen(function* (_) {
   const system = yield* _(ActorSystemTag)
